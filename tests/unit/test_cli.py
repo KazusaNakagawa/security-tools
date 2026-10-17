@@ -1,3 +1,4 @@
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -95,7 +96,7 @@ class TestScan:
 
 class TestStubs:
     def test_unimplemented_commands_exit_3(self, tmp_path):
-        for args in (["report"], ["diff", "a", "b"], ["serve"]):
+        for args in (["diff", "a", "b"], ["serve"]):
             result = invoke(*args)
             assert result.exit_code == 3, args
             assert "not implemented" in result.output
@@ -421,3 +422,153 @@ class TestQuestionnaireCommands:
     def test_show_invalid_answers(self, tmp_path):
         (tmp_path / "questionnaire.yaml").write_text("answers: {q_m1_leadership: {value: maybe}}\n")
         assert invoke("questionnaire", "show", "--workspace", str(tmp_path)).exit_code == 3
+
+
+def _scan(tmp_path, monkeypatch, *checks):
+    invoke("init", "--workspace", str(tmp_path))
+    patch_registry(monkeypatch, *checks)
+    out = invoke("scan", "--workspace", str(tmp_path)).output
+    return next(line.split()[1].rstrip(":") for line in out.splitlines() if line.startswith("Run "))
+
+
+class TestReport:
+    def test_latest_run_html_and_json(self, tmp_path, monkeypatch):
+        import json
+
+        run_id = _scan(tmp_path, monkeypatch, FindingCheck())
+        result = invoke("report", "--workspace", str(tmp_path))
+        run_dir = tmp_path / "out" / "runs" / run_id
+        html = (run_dir / "report.html").read_text(encoding="utf-8")
+        data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+        assert (
+            "経営サマリー" in html and "組織名を記入" in html
+        )  # scope snapshot from init template
+        assert data["run"]["id"] == run_id
+        assert str(run_dir / "report.html") in result.output
+        assert result.exit_code == 2  # the stored run has a critical finding
+
+    def test_specific_run_and_format(self, tmp_path, monkeypatch):
+        run_id = _scan(tmp_path, monkeypatch, FindingCheck())
+        result = invoke("report", "--workspace", str(tmp_path), "--run", run_id, "--format", "json")
+        run_dir = tmp_path / "out" / "runs" / run_id
+        assert (run_dir / "report.json").is_file()
+        assert not (run_dir / "report.html").exists()
+        assert result.exit_code == 2
+
+    def test_unknown_format(self, tmp_path, monkeypatch):
+        _scan(tmp_path, monkeypatch, FindingCheck())
+        result = invoke("report", "--workspace", str(tmp_path), "--format", "pdf")
+        assert result.exit_code == 3 and "pdf" in result.output
+
+    def test_unknown_run(self, tmp_path):
+        invoke("init", "--workspace", str(tmp_path))
+        result = invoke("report", "--workspace", str(tmp_path), "--run", "nope")
+        assert result.exit_code == 3 and "nope" in result.output
+
+    def test_no_runs(self, tmp_path):
+        invoke("init", "--workspace", str(tmp_path))
+        result = invoke("report", "--workspace", str(tmp_path))
+        assert result.exit_code == 3 and "alertcheck scan" in result.output
+
+    def test_redact_ips(self, tmp_path, monkeypatch):
+        class IpCheck(FindingCheck):
+            async def run(self, ctx):
+                from alertcheck.core.models import CheckResult, Coverage, Finding, Severity
+
+                f = Finding.create(
+                    check_id=self.id,
+                    kind="ip",
+                    target="https://203.0.113.10/",
+                    ipa_items=["A-1"],
+                    severity=Severity.low,
+                    title="t",
+                    description="d",
+                    remediation="r",
+                )
+                return CheckResult(
+                    findings=[f],
+                    coverage=[Coverage(check_id=self.id, target="*", status="executed")],
+                )
+
+        run_id = _scan(tmp_path, monkeypatch, IpCheck())
+        invoke("report", "--workspace", str(tmp_path), "--redact-ips")
+        html = (tmp_path / "out" / "runs" / run_id / "report.html").read_text(encoding="utf-8")
+        assert "203.0.113.10" not in html
+
+
+class TestExitCodes:
+    @pytest.mark.parametrize(
+        "severity,code", [("critical", 2), ("high", 1), ("medium", 0), ("info", 0)]
+    )
+    def test_scan_and_report_exit_codes(self, tmp_path, monkeypatch, severity, code):
+        class SevCheck(FindingCheck):
+            async def run(self, ctx):
+                from alertcheck.core.models import CheckResult, Coverage, Finding, Severity
+
+                f = Finding.create(
+                    check_id=self.id,
+                    kind="k",
+                    target="t",
+                    ipa_items=["A-6"],
+                    severity=Severity(severity),
+                    title="t",
+                    description="d",
+                    remediation="r",
+                )
+                return CheckResult(
+                    findings=[f],
+                    coverage=[Coverage(check_id=self.id, target="*", status="executed")],
+                )
+
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, SevCheck())
+        assert invoke("scan", "--workspace", str(tmp_path)).exit_code == code
+        assert invoke("report", "--workspace", str(tmp_path)).exit_code == code
+
+    def test_execution_error_wins(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FailingCheck(), FindingCheck())
+        assert invoke("scan", "--workspace", str(tmp_path)).exit_code == 3
+        assert invoke("report", "--workspace", str(tmp_path)).exit_code == 3
+
+
+def test_scope_snapshot_is_stored_redacted(tmp_path, monkeypatch):
+    import yaml
+
+    invoke("init", "--workspace", str(tmp_path))
+    scope = yaml.safe_load((tmp_path / "scope.yaml").read_text())
+    scope["targets"]["urls"] = ["https://a.example/?token=s3cr3t&lang=ja"]
+    (tmp_path / "scope.yaml").write_text(yaml.safe_dump(scope, allow_unicode=True))
+    patch_registry(monkeypatch, FindingCheck())
+    out = invoke("scan", "--workspace", str(tmp_path)).output
+    run_id = next(
+        line.split()[1].rstrip(":") for line in out.splitlines() if line.startswith("Run ")
+    )
+
+    from alertcheck.storage.sqlite import SqliteResultStore
+
+    stored = SqliteResultStore(tmp_path / "out" / "alertcheck.db").get_run(run_id)
+    assert "s3cr3t" not in str(stored.scope)
+    assert "lang=ja" in str(stored.scope)
+
+
+def test_findings_json_masks_coverage_url_secrets(tmp_path, monkeypatch):
+    class UrlCoverage(FindingCheck):
+        async def run(self, ctx):
+            from alertcheck.core.models import CheckResult, Coverage
+
+            return CheckResult(
+                coverage=[
+                    Coverage(
+                        check_id=self.id,
+                        target="https://a.example/?token=s3cr3t",
+                        status="executed",
+                    )
+                ]
+            )
+
+    invoke("init", "--workspace", str(tmp_path))
+    patch_registry(monkeypatch, UrlCoverage())
+    invoke("scan", "--workspace", str(tmp_path))
+    text = next((tmp_path / "out" / "runs").glob("*/findings.json")).read_text()
+    assert "s3cr3t" not in text

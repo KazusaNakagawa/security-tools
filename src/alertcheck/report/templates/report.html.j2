@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# Nothing is ever loaded from outside this file: the report must open offline and as a mail attachment. #}
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>IPA 注意喚起 対応状況診断 — {{ run.organization or "（組織名未設定）" }}</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1f2328; --muted: #5f6670; --border: #d9dce1;
+  --accent: #2f5fb3;
+  --critical: #a4161a; --high: #d9480f; --medium: #b7791f; --low: #2b6cb0; --info: #6b7280;
+  --achieved: #2f855a; --partial: #b7791f; --not_achieved: #c53030; --unverified: #6b7280; --na: #a0aec0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --panel: #1e2125; --text: #e6e8eb; --muted: #9aa3ad; --border: #343a40;
+    --accent: #7ea6f2;
+    --critical: #ff6b6b; --high: #ff922b; --medium: #fcc419; --low: #74c0fc; --info: #adb5bd;
+    --achieved: #69db7c; --partial: #fcc419; --not_achieved: #ff6b6b; --unverified: #adb5bd; --na: #6c757d;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  font-size: 15px; line-height: 1.65;
+}
+main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+header.cover { border-bottom: 2px solid var(--text); padding-bottom: 16px; margin-bottom: 24px; }
+header.cover h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: 0.02em; }
+header.cover .org { font-size: 18px; font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; }
+.meta span + span::before { content: " / "; }
+h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 16px; margin: 20px 0 8px; }
+section, .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+section + section { margin-top: 24px; }
+.banner { border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; font-weight: 600; }
+.banner.critical { background: var(--critical); color: #fff; }
+.banner.note { border: 1px solid var(--border); background: var(--panel); font-weight: 400; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.stat .label { color: var(--muted); font-size: 12px; }
+.stat .value { font-size: 28px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat.sev-critical .value { color: var(--critical); }
+.stat.sev-high .value { color: var(--high); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; min-width: 80px; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid currentColor; }
+.sev-critical .badge.sev, .badge.critical { color: var(--critical); }
+.badge.high { color: var(--high); }
+.badge.medium { color: var(--medium); }
+.badge.low { color: var(--low); }
+.badge.info { color: var(--info); }
+.badge.achieved { color: var(--achieved); }
+.badge.partial { color: var(--partial); }
+.badge.not_achieved { color: var(--not_achieved); }
+.badge.unverified { color: var(--unverified); }
+.badge.na { color: var(--na); }
+tr.item.na td { color: var(--muted); }
+tr.item td:first-child { white-space: nowrap; }
+details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+details ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+ol.priorities { margin: 0; padding-left: 22px; }
+ol.priorities li { margin: 6px 0; }
+.target { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; word-break: break-all; color: var(--muted); }
+article.finding { border: 1px solid var(--border); border-left: 4px solid var(--info); border-radius: 6px; padding: 14px 16px; margin: 12px 0; }
+article.finding.critical { border-left-color: var(--critical); }
+article.finding.high { border-left-color: var(--high); }
+article.finding.medium { border-left-color: var(--medium); }
+article.finding.low { border-left-color: var(--low); }
+article.finding h3 { margin: 0 0 6px; }
+article.finding dl { display: grid; grid-template-columns: 7em 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 14px; }
+article.finding dt { color: var(--muted); }
+article.finding dd { margin: 0; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; }
+a { color: var(--accent); }
+.empty { color: var(--muted); }
+footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+@media print {
+  body { background: #fff; color: #000; font-size: 12px; }
+  section, .panel { border: none; padding: 0; }
+  details { display: block; }
+  details > summary { display: none; }
+  details ul { display: block; }
+  article.finding { break-inside: avoid; }
+  h2 { break-after: avoid; }
+}
+</style>
+</head>
+<body>
+<main>
+
+<header class="cover">
+  <h1>IPA 注意喚起 対応状況診断レポート</h1>
+  <div class="org">{{ run.organization or "（組織名未設定）" }}</div>
+  <div class="meta">
+    <span>実行 ID {{ run.id }}</span>
+    <span>実行日時 {{ run.started_at[:16] | replace("T", " ") }} UTC</span>
+    <span>alertcheck {{ run.tool_version }}</span>
+  </div>
+  <div class="meta">基準: IPA「不正アクセスによる漏えい等の事案を踏まえ、速やかに実施すべき対策等について」（2026-10-09）。本ツールは IPA の公式ツールではありません。</div>
+</header>
+
+{% if score and score.critical %}
+<div class="banner critical" role="alert">
+  警告: critical の検出が {{ score.critical }} 件あります。達成率にかかわらず、最優先で対応してください。
+</div>
+{% endif %}
+{% if redacted %}
+<div class="banner note">共有用に IP アドレスを伏せて出力しています。</div>
+{% endif %}
+
+<h2>経営サマリー</h2>
+<section>
+  <div class="summary">
+    <div class="stat"><div class="label">達成率</div><div class="value">{{ score.overall | pct if score else "—" }}</div></div>
+    <div class="stat sev-critical"><div class="label">critical の検出</div><div class="value">{{ score.critical if score else 0 }}</div></div>
+    <div class="stat sev-high"><div class="label">high の検出</div><div class="value">{{ score.high if score else 0 }}</div></div>
+    <div class="stat"><div class="label">未確認の項目</div><div class="value">{{ score.counts.unverified if score else "—" }}</div></div>
+  </div>
+  <p class="meta">達成率 = 達成（1）と一部達成（0.5）の合計 ÷ 対象外を除く項目数。未確認の項目は分母に含め、加点しません。</p>
+
+  <h3>カテゴリ別の達成状況</h3>
+  <table>
+    <thead><tr><th>カテゴリ</th><th>達成率</th><th></th>{% for v, label in verdict_labels.items() %}<th>{{ label }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for c in categories %}
+      <tr>
+        <td>{{ c.label }}</td>
+        <td class="num">{{ c.rate | pct }}</td>
+        <td><div class="bar"><span style="width: {{ ((c.rate or 0) * 100) | round | int }}%"></span></div></td>
+        {% for v in verdict_labels %}<td class="num">{{ c.counts[v] }}</td>{% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>優先して対応すべき検出（上位 {{ priorities | length }} 件）</h3>
+  {% if priorities %}
+  <ol class="priorities" id="top5">
+    {% for f in priorities %}
+    <li><span class="badge {{ f.severity }}">{{ f.severity }}</span> {{ f.title }} <span class="meta">（{{ f.ipa_items | join(", ") }}）</span><br><span class="target">{{ f.target }}</span></li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <ol class="priorities" id="top5"></ol>
+  <p class="empty">対応が必要な検出はありません。未確認の項目がないかを IPA 項目別の判定で確認してください。</p>
+  {% endif %}
+
+  {% if mismatches %}
+  <h3>回答と検査結果の食い違い</h3>
+  <ul>
+    {% for i in mismatches %}<li><strong>{{ i.ipa_item }} {{ i.title }}</strong>: {{ i.rationale }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<h2>IPA 項目別の判定</h2>
+<section>
+  <table>
+    <thead><tr><th>項目</th><th>内容</th><th>判定</th><th>根拠</th><th>検出</th></tr></thead>
+    <tbody>
+    {% for i in items %}
+      <tr class="item {{ i.verdict }}" id="item-{{ i.ipa_item }}">
+        <td><strong>{{ i.ipa_item }}</strong></td>
+        <td>{{ i.title }}<div class="meta">{{ category_labels[i.category] }}</div></td>
+        <td><span class="badge {{ i.verdict }}">{{ verdict_labels[i.verdict] }}</span></td>
+        <td>
+          {{ i.rationale }}
+          {% if i.missing_inputs and i.verdict != "na" %}
+          <details>
+            <summary>不足している入力（{{ i.missing_inputs | length }}）</summary>
+            <ul>{% for m in i.missing_inputs %}<li>{{ m }}</li>{% endfor %}</ul>
+          </details>
+          {% endif %}
+        </td>
+        <td class="num">{{ i.findings | length }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<h2>検出の詳細（{{ findings | length }} 件）</h2>
+<section>
+  {% for f in findings %}
+  <article class="finding {{ f.severity }}" id="finding-{{ f.id }}">
+    <h3><span class="badge {{ f.severity }}">{{ f.severity }}</span> {{ f.title }}</h3>
+    <div class="target">{{ f.target }}</div>
+    <dl>
+      <dt>IPA 項目</dt><dd>{{ f.ipa_items | join(", ") }}</dd>
+      <dt>検査</dt><dd>{{ f.check_id }}</dd>
+      <dt>内容</dt><dd>{{ f.description }}</dd>
+      <dt>対策</dt><dd>{{ f.remediation }}</dd>
+      {% if f.references %}
+      <dt>参考</dt>
+      <dd>{% for url in f.references %}{% if url is weblink %}<a href="{{ url }}" rel="noopener noreferrer">{{ url }}</a>{% else %}{{ url }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
+      {% endif %}
+    </dl>
+    {% if f.evidence %}
+    <details>
+      <summary>根拠（マスク済み）</summary>
+      <pre>{{ f.evidence | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+  </article>
+  {% else %}
+  <p class="empty">検出はありません。</p>
+  {% endfor %}
+</section>
+
+<h2>付録</h2>
+<section>
+  <h3>実行した検査（Coverage）</h3>
+  <table>
+    <thead><tr><th>検査</th><th>対象</th><th>状態</th><th>詳細</th></tr></thead>
+    <tbody>
+    {% for c in coverage %}
+      <tr><td>{{ c.check_id }}</td><td class="target">{{ c.target }}</td><td>{{ status_labels.get(c.status, c.status) }}</td><td>{{ c.detail }}</td></tr>
+    {% else %}
+      <tr><td colspan="4" class="empty">実行された検査はありません。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>質問票の回答</h3>
+  <table>
+    <thead><tr><th>質問</th><th>内容</th><th>回答</th><th>補足</th></tr></thead>
+    <tbody>
+    {% for a in answers %}
+      <tr><td>{{ a.question_id }}</td><td>{{ a.text }}</td><td>{{ a.value if a.value is not none else "未回答" }}</td><td>{{ a.note }}</td></tr>
+    {% else %}
+      <tr><td colspan="4" class="empty">回答はありません。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>診断スコープ</h3>
+  {% if scope %}
+  <table>
+    <tbody>
+      <tr><th>組織</th><td>{{ scope.organization }}</td></tr>
+      {% for key, label in [("domains", "ドメイン"), ("urls", "URL"), ("hosts", "ホスト"), ("cidrs", "CIDR")] %}
+      {% set values = (scope.targets or {}).get(key) or [] %}
+      {% if values %}<tr><th>{{ label }}</th><td class="target">{{ values | join(", ") }}</td></tr>{% endif %}
+      {% endfor %}
+      {% if scope.exclude %}<tr><th>除外</th><td class="target">{{ scope.exclude | join(", ") }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">スコープの記録がありません。</p>
+  {% endif %}
+</section>
+
+<footer>
+  alertcheck {{ run.tool_version }} により生成。根拠の機密情報はマスク済みです。本レポートは外部のファイルを読み込みません。
+</footer>
+</main>
+</body>
+</html>

@@ -155,3 +155,5 @@ class RunResult(BaseModel):
     answers: list[Answer] = Field(default_factory=list)
     items: list[ItemResult] = Field(default_factory=list)
     score: Score | None = None
+    # snapshot of scope.yaml at scan time (organization, targets, exclude) for reports
+    scope: dict[str, Any] | None = None

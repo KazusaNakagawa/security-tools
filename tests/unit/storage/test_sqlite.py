@@ -112,3 +112,30 @@ def test_account_snapshots(store):
     store.save_account_snapshot("r1", "gws", rows)
     assert store.account_snapshot("r1", "gws") == rows
     assert store.account_snapshot("r1", "other") == []
+
+
+def test_scope_snapshot_roundtrip(store):
+    run = make_run("r1", 1)
+    run.scope = {"organization": "株式会社サンプル", "targets": {"urls": ["https://a.example/"]}}
+    store.save_run(run)
+    assert store.get_run("r1").scope == run.scope
+
+
+def test_old_database_is_migrated(tmp_path):
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, "
+        "tool_version TEXT, db_updated_at TEXT, options_json TEXT, scope_hash TEXT, "
+        "score_json TEXT)"
+    )
+    con.execute(
+        "INSERT INTO runs (id, started_at, tool_version) "
+        "VALUES ('old', '2026-10-01T00:00:00+00:00', '0.1.0')"
+    )
+    con.commit()
+    con.close()
+    store = SqliteResultStore(path)
+    assert store.get_run("old").scope is None
+    store.save_run(make_run("new", 2))
+    assert store.latest_run().id == "new"
