@@ -1,0 +1,25 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "registry.example/shop:1",
+  "ArtifactType": "container_image",
+  "Metadata": {"OS": {"Family": "debian", "Name": "10.13", "EOSL": true}},
+  "Results": [
+    {
+      "Target": "registry.example/shop:1 (debian 10.13)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-4911",
+          "PkgName": "libc6",
+          "InstalledVersion": "2.28-10+deb10u1",
+          "FixedVersion": "2.28-10+deb10u3",
+          "Status": "fixed",
+          "Severity": "HIGH",
+          "Title": "glibc: buffer overflow in ld.so (Looney Tunables)",
+          "CVSS": {"nvd": {"V3Score": 7.8}}
+        }
+      ]
+    }
+  ]
+}

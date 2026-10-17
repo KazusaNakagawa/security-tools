@@ -1,0 +1,45 @@
+{
+  "results": [
+    {
+      "source": {"path": "/ws/inputs/repos/shop/composer.lock", "type": "lockfile"},
+      "packages": [
+        {
+          "package": {"name": "guzzlehttp/guzzle", "version": "7.4.0", "ecosystem": "Packagist"},
+          "vulnerabilities": [
+            {
+              "id": "GHSA-f2wf-25xc-69c9",
+              "aliases": ["CVE-2022-29248"],
+              "summary": "Cross-domain cookie leakage in Guzzle",
+              "affected": [
+                {
+                  "package": {"ecosystem": "Packagist", "name": "guzzlehttp/guzzle"},
+                  "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "7.0.0"}, {"fixed": "7.4.3"}]}]
+                }
+              ],
+              "database_specific": {"severity": "HIGH"}
+            }
+          ],
+          "groups": [{"ids": ["GHSA-f2wf-25xc-69c9"], "aliases": ["CVE-2022-29248", "GHSA-f2wf-25xc-69c9"], "max_severity": "8.1"}]
+        },
+        {
+          "package": {"name": "monolog/monolog", "version": "1.0.0", "ecosystem": "Packagist"},
+          "vulnerabilities": [
+            {
+              "id": "GHSA-xxxx-osv-only",
+              "aliases": [],
+              "summary": "Issue known only to OSV",
+              "affected": [
+                {
+                  "package": {"ecosystem": "Packagist", "name": "monolog/monolog"},
+                  "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]
+                }
+              ],
+              "database_specific": {"severity": "LOW"}
+            }
+          ],
+          "groups": [{"ids": ["GHSA-xxxx-osv-only"], "aliases": ["GHSA-xxxx-osv-only"], "max_severity": "3.1"}]
+        }
+      ]
+    }
+  ]
+}

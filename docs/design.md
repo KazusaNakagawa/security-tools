@@ -335,8 +335,8 @@ class Check(Protocol):
 | `api` | 既知パス（`/swagger.json`, `/openapi.json`, `/api-docs`, `/v3/api-docs`, `/graphql`）を確認。GraphQL は `{__schema{types{name}}}` のみ送る。`api_endpoints` 一覧には認証ヘッダなしで GET し、200 + JSON を返すものを抽出。CORS は `Origin: https://evil.invalid` を付けて応答を確認 | API 仕様の公開・イントロスペクション有効（A-4, medium）、未認証で個人情報らしきキー（`email`, `tel`, `address`）を含む JSON を返す（critical）、`ACAO` 反射 + `ACAC: true`（high） |
 | `auth.passive` | HTML から `type=password` を含むフォームを検出し、`action` のスキーム、`autocomplete`、ページ内の MFA 文言を確認 | HTTP 送信のログインフォーム（high）。MFA の有無は推定に留め、質問票で確定する |
 | `auth.active` | 試験用アカウントで誤パスワードを N 回（既定 6 回）送り、ロックアウトまたは遅延の有無を確認。最後に正しいパスワードで解除状態を確認する | ロックアウト・レート制限なし（A-2, high） |
-| `vuln.version` | ヘッダ・バナー・nmap `-sV`・HTML の generator メタ等から CPE 相当を推定し、OSV / Trivy DB と照合。KEV 掲載は critical に格上げ。VPN 機器（Fortinet, Ivanti, Palo Alto, Cisco ASA 等）は製品検出時点で「既知の悪用事例が多い機器」として P2-1 に紐づける | 未修正の既知脆弱性（P1-4）、サポート終了バージョン（high） |
-| `vuln.templates` | Nuclei を `-tags exposure,misconfig,tech -etags intrusive,dos,fuzz,bruteforce -rl <rps>` で実行し、JSON 出力を Finding に変換。テンプレートの severity を引き継ぎ、タグから IPA 項目へ対応付ける | 設定不備・露出全般 |
+| `vuln.version` | ヘッダ（Server / X-Powered-By 等）と HTML の generator メタから製品とバージョンを推定し、endoflife.date のデータでサポート終了を判定する。CISA KEV に悪用実績がある製品は、検出バージョンの確認を促す。VPN 機器（Fortinet, Ivanti, Palo Alto, Cisco ASA, Citrix, SonicWall）はログイン画面の既知パスへの GET と本文の特徴で検出し、P2-1 に紐づける。バナーのバージョンと個々の CVE の照合は NVD の CPE データが必要なため対象外 | サポート終了バージョン（high）、KEV 掲載製品（medium）、公開 VPN 機器（medium） |
+| `vuln.templates` | Nuclei を `-tags exposure,misconfig,tech -etags intrusive,dos,fuzz,bruteforce -rl <rps>` で実行し、JSONL 出力を Finding に変換する。ホスト全体の許可（ドメイン・IP・CIDR 対象）があり名前解決を検証済みの対象だけを渡し、`-dr`（リダイレクト追跡なし）・`-ni`（外部への OOB 通信なし）・`-omit-raw` を付け、実施を `requests.jsonl` に記録する。Nuclei は自前で名前解決するため接続先の固定はできない。KEV 掲載 CVE は critical、info の結果は http.* と重複するため除外し、tech の結果は成果物として残す | 設定不備・露出全般 |
 
 ### 7.4 ファイル検査の詳細
 
@@ -378,7 +378,9 @@ class Check(Protocol):
 
 - `trivy fs --scanners vuln --format json` / `trivy image`、`osv-scanner --format json` を実行し、CVE 単位で重複を除く
 - 重大度は CVSS を基にし、KEV 掲載は critical、修正版が存在するものにだけ「パッチ未適用」として P1-4 を未達にする（修正版がないものは medium で「代替策を検討」）
-- ランタイムのサポート終了判定（PHP、Node.js、Python、Java、OS ベースイメージ）は endoflife.date のデータを同梱キャッシュから参照する
+- ランタイムのサポート終了判定は、`composer.lock` / `composer.json` / `package.json` / `.nvmrc` / `.python-version` / `pyproject.toml` / `Gemfile.lock` / `go.mod` / `Dockerfile` の FROM 行からバージョンを推定し、endoflife.date のデータで行う。コンテナイメージは trivy が返す OS の EOSL も使う
+- KEV と EOL のデータは `alertcheck db update` でキャッシュ（`$ALERTCHECK_CACHE`、既定 `~/.cache/alertcheck`）に取得する。EOL は同梱スナップショットへフォールバックし、KEV がない場合は格上げできないことを Coverage に記録する
+- trivy と osv-scanner のどちらも実行できなければ、その入力は `error` とする（EOL 判定だけは行う）。`--offline` では両ツールにオフライン用の引数を渡し、スキャン中に外部通信をしない
 
 #### data（P3-1, D-1〜D-3）
 

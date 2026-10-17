@@ -95,7 +95,7 @@ class TestScan:
 
 class TestStubs:
     def test_unimplemented_commands_exit_3(self, tmp_path):
-        for args in (["report"], ["diff", "a", "b"], ["db", "update"], ["serve"]):
+        for args in (["report"], ["diff", "a", "b"], ["serve"]):
             result = invoke(*args)
             assert result.exit_code == 3, args
             assert "not implemented" in result.output
@@ -257,3 +257,58 @@ def test_validate_shows_check_targets(tmp_path, monkeypatch):
     out = invoke("validate", "--workspace", str(tmp_path)).output
     assert "demo https://a.example/" in out
     assert "demo https://b.example/" in out
+
+
+class TestDbUpdate:
+    def _mock_feeds(self, respx_mock, kev_status=200):
+        from pathlib import Path
+
+        kev = (Path(__file__).parents[1] / "fixtures" / "tools" / "kev.json").read_text()
+        respx_mock.get(url__regex=r"https://www\.cisa\.gov/.*").mock(
+            return_value=__import__("httpx").Response(kev_status, text=kev)
+        )
+        respx_mock.get(url__regex=r"https://endoflife\.date/api/.*").mock(
+            return_value=__import__("httpx").Response(200, json=[{"cycle": "1", "eol": False}])
+        )
+
+    def test_updates_cache_and_reports_missing_tools(self, tmp_path, monkeypatch, respx_mock):
+        from alertcheck.adapters.process import ToolNotFound
+
+        async def no_tools(argv, *, timeout, ok_codes=(0,)):
+            raise ToolNotFound(f"{argv[0]} not installed")
+
+        monkeypatch.setenv("ALERTCHECK_CACHE", str(tmp_path))
+        monkeypatch.setattr("alertcheck.cli.run_tool", no_tools)
+        self._mock_feeds(respx_mock)
+        result = invoke("db", "update")
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "kev.json").is_file()
+        assert (tmp_path / "eol.json").is_file()
+        assert "kev" in result.output and "4 entries" in result.output
+        assert "trivy" in result.output and "not installed" in result.output
+
+    def test_installed_tools_are_updated(self, tmp_path, monkeypatch, respx_mock):
+        calls = []
+
+        async def tools(argv, *, timeout, ok_codes=(0,)):
+            calls.append(argv)
+            return ""
+
+        monkeypatch.setenv("ALERTCHECK_CACHE", str(tmp_path))
+        monkeypatch.setattr("alertcheck.cli.run_tool", tools)
+        self._mock_feeds(respx_mock)
+        assert invoke("db", "update").exit_code == 0
+        names = [c[0] for c in calls]
+        assert names == ["trivy", "osv-scanner", "nuclei"]
+        assert "--download-db-only" in calls[0]
+
+    def test_feed_failure_exits_3(self, tmp_path, monkeypatch, respx_mock):
+        async def tools(argv, *, timeout, ok_codes=(0,)):
+            return ""
+
+        monkeypatch.setenv("ALERTCHECK_CACHE", str(tmp_path))
+        monkeypatch.setattr("alertcheck.cli.run_tool", tools)
+        self._mock_feeds(respx_mock, kev_status=503)
+        result = invoke("db", "update")
+        assert result.exit_code == 3
+        assert "kev" in result.output and "fail" in result.output

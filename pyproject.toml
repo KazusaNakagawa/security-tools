@@ -22,6 +22,9 @@ tls = "alertcheck.checks.network.tls:TlsCheck"
 "http.cookies" = "alertcheck.checks.network.http_cookies:HttpCookiesCheck"
 "http.exposure" = "alertcheck.checks.network.http_exposure:HttpExposureCheck"
 "http.errors" = "alertcheck.checks.network.http_errors:HttpErrorsCheck"
+"vuln.version" = "alertcheck.checks.network.vuln_version:VulnVersionCheck"
+"vuln.templates" = "alertcheck.checks.network.vuln_templates:VulnTemplatesCheck"
+deps = "alertcheck.checks.files.deps:DepsCheck"
 
 [dependency-groups]
 dev = [
