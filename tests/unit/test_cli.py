@@ -530,3 +530,45 @@ class TestExitCodes:
         patch_registry(monkeypatch, FailingCheck(), FindingCheck())
         assert invoke("scan", "--workspace", str(tmp_path)).exit_code == 3
         assert invoke("report", "--workspace", str(tmp_path)).exit_code == 3
+
+
+def test_scope_snapshot_is_stored_redacted(tmp_path, monkeypatch):
+    import yaml
+
+    invoke("init", "--workspace", str(tmp_path))
+    scope = yaml.safe_load((tmp_path / "scope.yaml").read_text())
+    scope["targets"]["urls"] = ["https://a.example/?token=s3cr3t&lang=ja"]
+    (tmp_path / "scope.yaml").write_text(yaml.safe_dump(scope, allow_unicode=True))
+    patch_registry(monkeypatch, FindingCheck())
+    out = invoke("scan", "--workspace", str(tmp_path)).output
+    run_id = next(
+        line.split()[1].rstrip(":") for line in out.splitlines() if line.startswith("Run ")
+    )
+
+    from alertcheck.storage.sqlite import SqliteResultStore
+
+    stored = SqliteResultStore(tmp_path / "out" / "alertcheck.db").get_run(run_id)
+    assert "s3cr3t" not in str(stored.scope)
+    assert "lang=ja" in str(stored.scope)
+
+
+def test_findings_json_masks_coverage_url_secrets(tmp_path, monkeypatch):
+    class UrlCoverage(FindingCheck):
+        async def run(self, ctx):
+            from alertcheck.core.models import CheckResult, Coverage
+
+            return CheckResult(
+                coverage=[
+                    Coverage(
+                        check_id=self.id,
+                        target="https://a.example/?token=s3cr3t",
+                        status="executed",
+                    )
+                ]
+            )
+
+    invoke("init", "--workspace", str(tmp_path))
+    patch_registry(monkeypatch, UrlCoverage())
+    invoke("scan", "--workspace", str(tmp_path))
+    text = next((tmp_path / "out" / "runs").glob("*/findings.json")).read_text()
+    assert "s3cr3t" not in text

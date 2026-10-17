@@ -9,6 +9,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from alertcheck.config.questionnaire import load_questions
 from alertcheck.core.models import Finding, RunResult, Severity, ipa_sort_key
+from alertcheck.core.scope_guard import redact_urls_in
 from alertcheck.judge.definitions import load_definitions
 
 SCHEMA_VERSION = "1.0"
@@ -80,6 +81,8 @@ def render_json(run: RunResult, *, redact_ips: bool = False) -> dict[str, Any]:
         "coverage": [c.model_dump(mode="json") for c in run.coverage],
         "answers": [a.model_dump(mode="json") for a in run.answers],
     }
+    # secret-looking query values never reach a report, shared or not
+    data = redact_urls_in(data)
     return _redact_ips(data) if redact_ips else data
 
 

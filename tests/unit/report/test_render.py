@@ -123,3 +123,37 @@ class TestHtml:
         html = render_html(make_run())
         assert "不足している入力" in html
         assert "inputs.deps" in html or "未実装" in html
+
+
+class TestUrlSecrets:
+    def _run(self, make_run):
+        from alertcheck.core.models import Coverage
+
+        run = make_run(
+            coverage=[
+                Coverage(
+                    check_id="http.headers",
+                    target="https://www.example.co.jp/app/?token=s3cr3t&lang=ja",
+                    status="executed",
+                    detail="via https://www.example.co.jp/app/?password=hunter2",
+                ),
+            ]
+        )
+        run.scope["targets"]["urls"] = ["https://www.example.co.jp/app/?token=s3cr3t&lang=ja"]
+        run.scope["exclude"] = ["https://www.example.co.jp/admin/?api_key=k3y"]
+        return run
+
+    @pytest.mark.parametrize("redact_ips", [False, True])
+    def test_json_masks_secret_query_values(self, make_run, redact_ips):
+        text = json.dumps(
+            render_json(self._run(make_run), redact_ips=redact_ips), ensure_ascii=False
+        )
+        for secret in ("s3cr3t", "hunter2", "k3y"):
+            assert secret not in text
+        assert "lang=ja" in text
+
+    def test_html_masks_secret_query_values(self, make_run):
+        html = render_html(self._run(make_run))
+        for secret in ("s3cr3t", "hunter2", "k3y"):
+            assert secret not in html
+        assert "lang=ja" in html

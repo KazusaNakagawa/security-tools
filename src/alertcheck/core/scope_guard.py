@@ -378,6 +378,20 @@ async def _read_bounded(response: httpx.Response, max_body: int) -> tuple[bytes,
     return bytes(out), False
 
 
+_URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>]+")
+
+
+def redact_urls_in(value: Any) -> Any:
+    """Apply redact_url to every URL found in strings of a nested structure."""
+    if isinstance(value, str):
+        return _URL_IN_TEXT.sub(lambda m: redact_url(m.group(0)), value)
+    if isinstance(value, dict):
+        return {k: redact_urls_in(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_urls_in(v) for v in value]
+    return value
+
+
 def _origin(url: str) -> tuple[str, str, int]:
     parts = urlsplit(url)
     port = parts.port or _DEFAULT_PORTS.get(parts.scheme, 0)

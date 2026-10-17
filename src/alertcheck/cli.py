@@ -21,6 +21,7 @@ from alertcheck.core.models import Answer, Coverage, Finding, RunResult, Severit
 from alertcheck.core.orchestrator import Orchestrator
 from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
+from alertcheck.core.scope_guard import redact_urls_in
 from alertcheck.infra.factory import Infra, build_infra
 from alertcheck.judge.judge import judge, score
 from alertcheck.report.render import render_html, render_json
@@ -187,11 +188,13 @@ def scan(
         run.findings, run.coverage, answers, available_checks={c.id for c in registry.all()}
     )
     run.score = score(run.items, run.findings)
-    run.scope = {
-        "organization": scope.organization,
-        "targets": scope.targets.model_dump(),
-        "exclude": list(scope.exclude),
-    }
+    run.scope = redact_urls_in(
+        {
+            "organization": scope.organization,
+            "targets": scope.targets.model_dump(),
+            "exclude": list(scope.exclude),
+        }
+    )
     infra.store.save_run(run)
 
     findings = sorted(run.findings, key=lambda f: (-f.severity.rank, f.check_id, f.target))
@@ -257,7 +260,7 @@ def _write_findings(infra: Infra, run: RunResult, findings: list[Finding]) -> st
         "findings": [f.model_dump(mode="json") for f in findings],
         "coverage": [c.model_dump(mode="json") for c in run.coverage],
     }
-    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    data = json.dumps(redact_urls_in(payload), ensure_ascii=False, indent=2).encode("utf-8")
     return infra.workspace.write_output(run.id, "findings.json", data, "application/json")
 
 
