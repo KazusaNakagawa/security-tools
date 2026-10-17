@@ -53,10 +53,14 @@ def hostname_matches(cert: x509.Certificate, hostname: str) -> bool:
         ip = None
     try:
         san = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
-        if ip is not None:
-            return ip in san.get_values_for_type(x509.IPAddress)
-        names = san.get_values_for_type(x509.DNSName)
     except x509.ExtensionNotFound:
+        san = None
+    if ip is not None:
+        # browsers accept an IP only from an iPAddress SAN, never from the CN
+        return san is not None and ip in san.get_values_for_type(x509.IPAddress)
+    if san is not None:
+        names = san.get_values_for_type(x509.DNSName)
+    else:
         names = [a.value for a in cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)]
     for name in names:
         name = str(name).lower().rstrip(".")

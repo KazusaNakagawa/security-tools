@@ -99,3 +99,25 @@ async def test_url_prefix_target(make_ctx):
     url = "https://www.example.co.jp/app/"
     result, calls = await run(make_ctx, httpx.Response(404), url=url)
     assert all(str(c.request.url).startswith(url) for c in calls)
+
+
+@respx.mock
+async def test_failed_probes_are_counted(make_ctx):
+    ctx = make_ctx(targets={"urls": [URL]})
+    respx.get(URL).mock(return_value=httpx.Response(200, text="<html>top</html>"))
+    respx.route().mock(side_effect=httpx.ReadTimeout("slow"))
+    result = await HttpErrorsCheck().run(ctx)
+    await ctx.aclose()
+    assert result.coverage[0].status == "error"
+    # respx's URL pattern ignores the query, so the "?..." probes hit the base route
+    path_probes = sum(1 for p in PROBES if not p.startswith("?"))
+    assert f"{path_probes}/{len(PROBES)} probes failed" in result.coverage[0].detail
+
+
+@respx.mock
+async def test_query_in_target_url_does_not_move_probe_base(make_ctx):
+    url = "https://www.example.co.jp/app/?lang=ja"
+    _, calls = await run(make_ctx, httpx.Response(404), url=url)
+    probes = [str(c.request.url) for c in calls][1:]
+    assert all(p.startswith("https://www.example.co.jp/app/") for p in probes)
+    assert not any("lang=ja/" in p for p in probes)

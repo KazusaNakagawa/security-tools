@@ -1,4 +1,5 @@
 import httpx
+import pytest
 import respx
 
 from alertcheck.checks.network.http_headers import HttpHeadersCheck
@@ -128,3 +129,46 @@ async def test_version_leaks_have_distinct_ids(make_ctx):
     result = await run(make_ctx, headers)
     ids = [f.id for f in result.findings]
     assert len(ids) == len(set(ids)) == 2
+
+
+@pytest.mark.parametrize(
+    "csp,xfo,protected",
+    [
+        ("default-src 'self'; frame-ancestors 'none'", None, True),
+        ("frame-ancestors 'self' https://a.example", None, True),
+        ("default-src 'self' frame-ancestors", None, False),  # not a directive
+        ("frame-ancestors", None, False),  # directive without sources
+        ("default-src 'self'; report-uri /frame-ancestors", None, False),
+        (None, "DENY", True),
+        (None, "sameorigin", True),
+        (None, "ALLOW-FROM https://a.example", False),  # ignored by modern browsers
+        (None, "yes", False),
+    ],
+)
+@respx.mock
+async def test_framing_protection_must_be_valid(make_ctx, csp, xfo, protected):
+    headers = {k: v for k, v in SECURE.items() if k != "Content-Security-Policy"}
+    if csp:
+        headers["Content-Security-Policy"] = csp
+    if xfo:
+        headers["X-Frame-Options"] = xfo
+    assert ("clickjacking" not in kind_set(await run(make_ctx, headers))) is protected
+
+
+@pytest.mark.parametrize(
+    "value,ok",
+    [
+        ("max-age=31536000", True),
+        ('max-age="31536000"; includeSubDomains', True),
+        ("includeSubDomains; max-age=600", True),
+        ("max-age=31536000junk", False),
+        ('max-age="31536000', False),
+        ("max-age=", False),
+        ("max-age=0", False),
+        ("maxage=31536000", False),
+    ],
+)
+@respx.mock
+async def test_hsts_parsing(make_ctx, value, ok):
+    headers = {**SECURE, "Strict-Transport-Security": value}
+    assert ("hsts_missing" not in kind_set(await run(make_ctx, headers))) is ok

@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -37,43 +37,94 @@ class TlsCheck:
         self._scanner = scanner
         self._now = now or (lambda: datetime.now(UTC))
 
-    def _endpoints(self, ctx: Context) -> list[tuple[str, int]]:
-        out: list[tuple[str, int]] = []
+    def _targets(self, ctx: Context) -> tuple[list[tuple[str, int]], list[str], list[str]]:
+        """(HTTPS endpoints to scan, plain-HTTP URLs to check, URL-prefix-only endpoints)."""
+        endpoints: list[tuple[str, int]] = []
+        prefix_only: list[str] = []
+        http_urls: list[str] = []
         for t in http_targets(ctx):
             parts = urlsplit(t.url)
-            if parts.scheme != "https" or not parts.hostname:
+            if not parts.hostname:
+                continue
+            if parts.scheme == "http":
+                if t.url not in http_urls:
+                    http_urls.append(t.url)
                 continue
             endpoint = (parts.hostname, parts.port or 443)
-            if endpoint not in out:
-                out.append(endpoint)
-        return out
+            label = f"{endpoint[0]}:{endpoint[1]}"
+            # a URL prefix authorizes its path; a full TLS scan needs host-wide authorization
+            if not ctx.guard.check_host(parts.hostname).allowed:
+                if label not in prefix_only:
+                    prefix_only.append(label)
+                continue
+            if endpoint not in endpoints:
+                endpoints.append(endpoint)
+        return endpoints, http_urls, prefix_only
 
     def plan(self, ctx: Context) -> list[Coverage]:
-        endpoints = self._endpoints(ctx)
-        if not endpoints:
-            return [
-                Coverage(
-                    check_id=self.id,
-                    target="*",
-                    status="skipped_no_input",
-                    detail="no HTTPS targets",
-                )
-            ]
-        return [
+        endpoints, http_urls, prefix_only = self._targets(ctx)
+        coverage = [
             Coverage(check_id=self.id, target=f"{h}:{p}", status="executed") for h, p in endpoints
         ]
+        coverage += [Coverage(check_id=self.id, target=u, status="executed") for u in http_urls]
+        coverage += [self._prefix_skip(label) for label in prefix_only]
+        if not coverage:
+            return [
+                Coverage(
+                    check_id=self.id, target="*", status="skipped_no_input", detail="no targets"
+                )
+            ]
+        return coverage
+
+    def _prefix_skip(self, label: str) -> Coverage:
+        return Coverage(
+            check_id=self.id,
+            target=label,
+            status="skipped_by_option",
+            detail="URL-prefix target only; add a domain/IP target to authorize a TLS scan",
+        )
 
     async def run(self, ctx: Context) -> CheckResult:
-        results = await asyncio.gather(
-            *(self._endpoint(ctx, h, p) for h, p in self._endpoints(ctx))
-        )
+        endpoints, http_urls, prefix_only = self._targets(ctx)
+        # one sslyze scan at a time keeps total connections within limits.concurrency
+        gate = asyncio.Semaphore(1)
+        tasks = [self._safe_endpoint(ctx, h, p, gate) for h, p in endpoints]
+        tasks += [self._safe_http_target(ctx, u) for u in http_urls]
+        results = await asyncio.gather(*tasks)
         merged = CheckResult()
         for findings, coverage in results:
             merged.findings += findings
             merged.coverage.append(coverage)
+        merged.coverage += [self._prefix_skip(label) for label in prefix_only]
         return merged
 
-    async def _endpoint(self, ctx: Context, host: str, port: int) -> tuple[list[Finding], Coverage]:
+    async def _safe_endpoint(
+        self, ctx: Context, host: str, port: int, gate: asyncio.Semaphore
+    ) -> tuple[list[Finding], Coverage]:
+        try:
+            return await self._endpoint(ctx, host, port, gate)
+        except Exception as e:  # one endpoint must not stop the others
+            detail = f"{type(e).__name__}: {e}"[:300]
+            return [], Coverage(
+                check_id=self.id, target=f"{host}:{port}", status="error", detail=detail
+            )
+
+    async def _safe_http_target(self, ctx: Context, url: str) -> tuple[list[Finding], Coverage]:
+        try:
+            probe = await self._http_probe(ctx, url)
+        except Exception as e:
+            detail = f"{type(e).__name__}: {e}"[:300]
+            return [], Coverage(check_id=self.id, target=url, status="error", detail=detail)
+        if probe is None:
+            return [], Coverage(
+                check_id=self.id, target=url, status="error", detail="HTTP not reachable"
+            )
+        findings = [] if probe else [self._no_redirect(url, url)]
+        return findings, Coverage(check_id=self.id, target=url, status="executed")
+
+    async def _endpoint(
+        self, ctx: Context, host: str, port: int, gate: asyncio.Semaphore
+    ) -> tuple[list[Finding], Coverage]:
         target = f"{host}:{port}"
         decision = await ctx.guard.validate_resolution(host)
         address = ctx.guard.pinned_address(host) if decision.allowed else None
@@ -81,27 +132,37 @@ class TlsCheck:
             reason = decision.reason or "no validated address"
             return [], Coverage(check_id=self.id, target=target, status="error", detail=reason)
 
-        ctx.audit({"event": "tls_scan", "host": host, "port": port, "address": address})
-        if self._scanner is not None:
-            scan = await asyncio.to_thread(self._scanner, host, port, address)
-        else:
-            concurrency = ctx.scope.limits.concurrency
-            scan = await asyncio.to_thread(
-                lambda: sslyze_scan.scan(host, port, address, concurrency=concurrency)
-            )
-        http_final = await self._http_final_url(ctx, host) if port == 443 else None
+        async with gate:
+            ctx.audit({"event": "tls_scan", "host": host, "port": port, "address": address})
+            if self._scanner is not None:
+                scan = await asyncio.to_thread(self._scanner, host, port, address)
+            else:
+                concurrency = ctx.scope.limits.concurrency
+                scan = await asyncio.to_thread(
+                    lambda: sslyze_scan.scan(host, port, address, concurrency=concurrency)
+                )
+        redirects = None
+        if port == 443:
+            host_url = f"http://[{host}]/" if ":" in host else f"http://{host}/"
+            redirects = await self._http_probe(ctx, host_url)
 
         if scan.error:
-            if http_final is not None:
+            if redirects is not None:
                 f = self._finding(
                     "https_unavailable",
                     target,
                     Severity.high,
                     ["D-4"],
-                    "HTTPS で接続できない（HTTP のみで提供している）",
+                    "HTTPS で接続できない"
+                    + (
+                        "（HTTP は HTTPS へ誘導しているが接続先が応答しない）"
+                        if redirects
+                        else "（HTTP のみで提供している）"
+                    ),
                     "通信が暗号化されず、入力内容や Cookie を盗聴・改ざんされうる。",
                     "TLS 証明書を導入して HTTPS で提供し、HTTP は HTTPS へリダイレクトする。",
                     error=scan.error[:300],
+                    http_redirects_to_https=redirects,
                 )
                 return [f], Coverage(check_id=self.id, target=target, status="executed")
             return [], Coverage(
@@ -109,29 +170,34 @@ class TlsCheck:
             )
 
         findings = self._judge(scan, target)
-        if http_final is not None and not http_final.startswith("https://"):
-            findings.append(
-                self._finding(
-                    "no_https_redirect",
-                    target,
-                    Severity.medium,
-                    ["D-4"],
-                    "HTTP でのアクセスが HTTPS へ誘導されない",
-                    "http:// で開いた利用者は暗号化されないまま通信を続けることになる。",
-                    "HTTP へのアクセスを 301 で HTTPS へリダイレクトし、HSTS を設定する。",
-                    final_url=http_final,
-                )
-            )
+        if redirects is False:
+            findings.append(self._no_redirect(target, f"http://{host}/"))
         return findings, Coverage(check_id=self.id, target=target, status="executed")
 
-    async def _http_final_url(self, ctx: Context, host: str) -> str | None:
-        """Final URL reached from http://host/, or None if plain HTTP is not served."""
-        url = f"http://[{host}]/" if ":" in host else f"http://{host}/"
+    async def _http_probe(self, ctx: Context, url: str) -> bool | None:
+        """Whether plain HTTP redirects to HTTPS; None if plain HTTP is not served.
+
+        Only the first response is inspected, so a redirect to a dead HTTPS
+        endpoint still counts as "served".
+        """
         try:
-            response = await ctx.http.get(url, max_body=16 * 1024)
+            response = await ctx.http.get(url, max_body=16 * 1024, redirects=0)
         except (httpx.HTTPError, ScopeViolation):
             return None
-        return str(response.url)
+        location = response.headers.get("location", "")
+        return response.is_redirect and urljoin(url, location).startswith("https://")
+
+    def _no_redirect(self, target: str, url: str) -> Finding:
+        return self._finding(
+            "no_https_redirect",
+            target,
+            Severity.medium,
+            ["D-4"],
+            "HTTP でのアクセスが HTTPS へ誘導されない",
+            "http:// で開いた利用者は暗号化されないまま通信を続けることになる。",
+            "HTTP へのアクセスを 301 で HTTPS へリダイレクトし、HSTS を設定する。",
+            url=url,
+        )
 
     def _judge(self, scan: TlsScanResult, target: str) -> list[Finding]:
         out: list[Finding] = []

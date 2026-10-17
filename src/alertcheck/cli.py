@@ -183,8 +183,9 @@ def scan(
         if n:
             typer.echo(f"  {sev.value:<8} {n}")
     for c in run.coverage:
-        if c.status != "executed":
-            typer.echo(f"  {c.status:<18} {c.check_id} {c.detail}".rstrip())
+        # partial probe failures must not look like a clean result
+        if c.status != "executed" or "probes failed" in c.detail:
+            typer.echo(f"  {c.status:<18} {c.check_id} {c.target} {c.detail}".rstrip())
     for w in ctx.guard.warnings:
         typer.echo(f"warning: {w}")
     raise typer.Exit(_exit_code(run))

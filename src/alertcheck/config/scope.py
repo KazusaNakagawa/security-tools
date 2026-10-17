@@ -36,6 +36,8 @@ def _check_http_url(value: str) -> str:
         port = -1
     if parts.scheme not in ("http", "https") or not parts.hostname or port == -1:
         raise ValueError(f"URL must be http(s) with a host and a valid port: {value!r}")
+    if parts.username or parts.password:
+        raise ValueError(f"URL must not embed credentials: {parts.hostname}")
     return value
 
 

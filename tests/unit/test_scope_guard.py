@@ -560,3 +560,86 @@ class TestMaxBody:
         async with GuardedHttpClient(guard) as client:
             with pytest.raises(ValueError, match="max_body"):
                 await client.get("https://www.example.co.jp/", max_body=0)
+
+
+class CountingStream(httpx.AsyncByteStream):
+    def __init__(self, total, chunk=1024):
+        self.total, self.chunk, self.consumed = total, chunk, 0
+
+    async def __aiter__(self):
+        while self.consumed < self.total:
+            self.consumed += self.chunk
+            yield b"z" * self.chunk
+
+
+class TestBoundedReads:
+    @respx.mock
+    async def test_stops_reading_at_limit(self):
+        stream = CountingStream(10_000_000)
+        respx.get("https://www.example.co.jp/huge").mock(
+            return_value=httpx.Response(200, stream=stream)
+        )
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/huge", max_body=4096)
+        assert len(resp.content) == 4096
+        assert stream.consumed <= 4096 + 1024
+
+    @respx.mock
+    async def test_gzip_bomb_is_bounded(self):
+        import gzip
+
+        bomb = gzip.compress(b"0" * 20_000_000)
+        respx.get("https://www.example.co.jp/bomb").mock(
+            return_value=httpx.Response(200, content=bomb, headers={"Content-Encoding": "gzip"})
+        )
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/bomb", max_body=1024)
+        assert resp.content == b"0" * 1024
+        assert resp.extensions["alertcheck_truncated"] is True
+
+    @respx.mock
+    async def test_small_gzip_body_is_decoded(self):
+        import gzip
+
+        respx.get("https://www.example.co.jp/g").mock(
+            return_value=httpx.Response(
+                200, content=gzip.compress(b"hello"), headers={"Content-Encoding": "gzip"}
+            )
+        )
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/g", max_body=1024)
+        assert resp.text == "hello"
+        assert "content-encoding" not in resp.headers
+
+    @respx.mock
+    async def test_identity_encoding_is_requested(self):
+        route = respx.get("https://www.example.co.jp/i").mock(return_value=httpx.Response(200))
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            await client.get("https://www.example.co.jp/i", max_body=10)
+        assert route.calls.last.request.headers["accept-encoding"] == "identity"
+
+
+class TestPerRequestRedirects:
+    @respx.mock
+    async def test_zero_returns_the_redirect_itself(self):
+        respx.get("http://www.example.co.jp/").mock(
+            return_value=httpx.Response(301, headers={"Location": "https://www.example.co.jp/"})
+        )
+        target = respx.get("https://www.example.co.jp/").mock(return_value=httpx.Response(200))
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("http://www.example.co.jp/", redirects=0)
+        assert resp.status_code == 301
+        assert not target.called
+
+
+class TestUrlCredentials:
+    async def test_unverified_client_refuses_userinfo(self):
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard, verify=False) as client:
+            with pytest.raises(ValueError, match="credentials"):
+                await client.get("https://user:pw@www.example.co.jp/")

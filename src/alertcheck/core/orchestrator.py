@@ -88,6 +88,7 @@ class Orchestrator:
         findings: list[Finding] = []
         coverage: list[Coverage] = []
         executed: set[str] = set()
+        seen: set[str] = set()
         try:
             for stage in self._registry.stages():
                 runnable: list[Check] = []
@@ -105,7 +106,11 @@ class Orchestrator:
                     tasks = [tg.create_task(self._run_one(c)) for c in runnable]
                 for check, task in zip(runnable, tasks, strict=True):
                     result = task.result()
-                    findings += result.findings
+                    # e.g. several configured URLs redirecting to the same page
+                    for f in result.findings:
+                        if f.id not in seen:
+                            seen.add(f.id)
+                            findings.append(f)
                     coverage += result.coverage
                     if result.artifacts:
                         self._ctx.artifacts[check.id] = result.artifacts

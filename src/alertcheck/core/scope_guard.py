@@ -14,6 +14,7 @@ import posixpath
 import re
 import socket
 import ssl
+import zlib
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -339,6 +340,44 @@ def redact_url(url: str) -> str:
     return mask_text(urlunsplit((parts.scheme, netloc, parts.path, query, "")))
 
 
+class _BoundedDecoder:
+    """Decodes gzip/deflate with a hard cap on output, so compression bombs stay bounded.
+
+    httpx's own decoding yields whole decompressed chunks before the caller can
+    stop, which is why raw bytes are decoded here instead.
+    """
+
+    def __init__(self, encoding: str) -> None:
+        encoding = encoding.strip().lower()
+        if encoding in ("gzip", "x-gzip"):
+            self._zlib: Any = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        elif encoding == "deflate":
+            self._zlib = zlib.decompressobj(zlib.MAX_WBITS)
+        else:
+            self._zlib = None  # identity, or an encoding we leave undecoded
+
+    def feed(self, data: bytes, limit: int) -> bytes:
+        if self._zlib is None:
+            return data[:limit]
+        return self._zlib.decompress(data, limit)
+
+
+async def _read_bounded(response: httpx.Response, max_body: int) -> tuple[bytes, bool]:
+    decoder = _BoundedDecoder(response.headers.get("content-encoding", ""))
+    out = bytearray()
+    raw_budget = 4 * max_body + 64 * 1024  # stop even if compressed data decodes to nothing
+    raw_read = 0
+    async for raw in response.aiter_raw():
+        raw_read += len(raw)
+        try:
+            out += decoder.feed(raw, max_body + 1 - len(out))
+        except zlib.error:
+            break
+        if len(out) > max_body or raw_read > raw_budget:
+            return bytes(out[:max_body]), True
+    return bytes(out), False
+
+
 def _origin(url: str) -> tuple[str, str, int]:
     parts = urlsplit(url)
     port = parts.port or _DEFAULT_PORTS.get(parts.scheme, 0)
@@ -353,6 +392,11 @@ def _drop_credentials(kwargs: dict[str, Any]) -> dict[str, Any]:
             headers.pop(name, None)
         kwargs["headers"] = headers
     return kwargs
+
+
+def _has_url_credentials(url: str) -> bool:
+    parts = urlsplit(url)
+    return bool(parts.username or parts.password)
 
 
 def _has_credentials(kwargs: dict[str, Any]) -> bool:
@@ -432,21 +476,14 @@ class GuardedHttpClient:
     ) -> httpx.Response:
         if max_body is None:
             return await self._client.request(method, url, **kwargs)
-        request = self._client.build_request(method, url, **kwargs)
+        headers = httpx.Headers(kwargs.pop("headers", None) or {})
+        headers.setdefault("accept-encoding", "identity")
+        request = self._client.build_request(method, url, headers=headers, **kwargs)
         response = await self._client.send(request, stream=True)
         try:
-            chunks: list[bytes] = []
-            size = 0
-            truncated = False
-            async for chunk in response.aiter_bytes():
-                chunks.append(chunk)
-                size += len(chunk)
-                if size > max_body:
-                    truncated = True
-                    break
+            content, truncated = await _read_bounded(response, max_body)
         finally:
             await response.aclose()
-        content = b"".join(chunks)[:max_body]
         limited = httpx.Response(
             response.status_code,
             # the body is already decoded and possibly cut, so these no longer apply
@@ -462,13 +499,22 @@ class GuardedHttpClient:
         return limited
 
     async def request(
-        self, method: str, url: str, *, max_body: int | None = None, **kwargs: Any
+        self,
+        method: str,
+        url: str,
+        *,
+        max_body: int | None = None,
+        redirects: int | None = None,
+        **kwargs: Any,
     ) -> httpx.Response:
         """Send a scope-checked request.
 
         ``max_body`` caps how many body bytes are read (the rest is discarded),
         so probing a large dump or archive never downloads it in full.
+        ``redirects`` overrides how many redirects to follow; 0 returns the
+        first response, redirect or not.
         """
+        limit = self._max_redirects if redirects is None else redirects
         if max_body is not None and max_body <= 0:
             raise ValueError("max_body must be positive")
         if "follow_redirects" in kwargs:
@@ -478,6 +524,8 @@ class GuardedHttpClient:
 
         history: list[httpx.Response] = []
         while True:
+            if not self.verify and _has_url_credentials(url):
+                raise ValueError("refusing to send URL credentials over an unverified TLS client")
             safe_url = redact_url(url)
             decision = await self._decide(url)
             if not decision.allowed:
@@ -514,11 +562,11 @@ class GuardedHttpClient:
             )
 
             location = response.headers.get("location")
-            if response.status_code not in _REDIRECT_CODES or not location:
+            if response.status_code not in _REDIRECT_CODES or not location or limit == 0:
                 response.history = history
                 return response
             history.append(response)
-            if len(history) > self._max_redirects:
+            if len(history) > limit:
                 raise httpx.TooManyRedirects("too many redirects", request=response.request)
 
             next_url = urljoin(url, location)

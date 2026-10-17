@@ -24,6 +24,8 @@ class SetCookie:
     secure: bool
     httponly: bool
     samesite: str | None
+    domain: str | None = None
+    path: str | None = None
 
 
 def parse_set_cookie(header: str) -> SetCookie | None:
@@ -41,6 +43,8 @@ def parse_set_cookie(header: str) -> SetCookie | None:
         secure="secure" in flags,
         httponly="httponly" in flags,
         samesite=flags.get("samesite") or None,
+        domain=flags.get("domain") or None,
+        path=flags.get("path") or None,
     )
 
 
@@ -52,17 +56,22 @@ class HttpCookiesCheck(HttpCheck):
         self, ctx: Context, target: HttpTarget, response: httpx.Response
     ) -> list[Finding]:
         findings: list[Finding] = []
-        seen: set[str] = set()
+        seen: set[SetCookie] = set()
+        # judge every instance: a later Set-Cookie for the same name may be weaker or scoped
+        # differently; only exact duplicates are skipped
         for resp in [*response.history, response]:
             url = str(resp.url)
             https = url.startswith("https://")
             for header in resp.headers.get_list("set-cookie"):
                 cookie = parse_set_cookie(header)
-                if cookie is None or cookie.name in seen or not _SESSION_LIKE.search(cookie.name):
+                if cookie is None or cookie in seen or not _SESSION_LIKE.search(cookie.name):
                     continue
-                seen.add(cookie.name)
+                seen.add(cookie)
                 findings += self._judge(cookie, url, https)
-        return findings
+        unique: dict[str, Finding] = {}
+        for f in findings:
+            unique.setdefault(f.id, f)
+        return list(unique.values())
 
     def _judge(self, cookie: SetCookie, url: str, https: bool) -> list[Finding]:
         out = []
@@ -71,7 +80,7 @@ class HttpCookiesCheck(HttpCheck):
             out.append(
                 self.finding(
                     kind=kind,
-                    variant=cookie.name,
+                    variant=f"{cookie.name}|{cookie.domain or ''}|{cookie.path or '/'}",
                     target=url,
                     severity=severity,
                     ipa_items=_IPA,
@@ -80,6 +89,9 @@ class HttpCookiesCheck(HttpCheck):
                     remediation=fix,
                     evidence={
                         "cookie": cookie.name,
+                        "domain": cookie.domain,
+                        "path": cookie.path,
+                        "over_http": not https,
                         "secure": cookie.secure,
                         "httponly": cookie.httponly,
                         "samesite": cookie.samesite,
@@ -88,13 +100,17 @@ class HttpCookiesCheck(HttpCheck):
                 )
             )
 
-        if https and not cookie.secure:
+        if not cookie.secure:
             add(
                 "cookie_secure_missing",
                 Severity.medium,
                 "セッション Cookie に Secure 属性がない",
-                "HTTP 通信にも Cookie が送られ、盗聴でセッションを奪われうる。",
-                "Set-Cookie に Secure を付与する。",
+                (
+                    "HTTP で発行されており、通信経路でセッションを盗聴されうる。"
+                    if not https
+                    else "HTTP 通信にも Cookie が送られ、盗聴でセッションを奪われうる。"
+                ),
+                "HTTPS で提供し、Set-Cookie に Secure を付与する。",
             )
         if not cookie.httponly and not _JS_READABLE.search(cookie.name):
             add(

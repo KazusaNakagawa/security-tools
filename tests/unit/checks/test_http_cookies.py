@@ -66,11 +66,35 @@ async def test_samesite_none_without_secure(make_ctx):
 
 
 @respx.mock
-async def test_secure_not_required_on_plain_http(make_ctx):
+async def test_session_cookie_over_plain_http_is_flagged(make_ctx):
     result = await run(
         make_ctx, ["session=1; HttpOnly; SameSite=Lax"], url="http://www.example.co.jp/"
     )
-    assert result.findings == []
+    assert summary(result) == {("session", "cookie_secure_missing", "medium")}
+    assert result.findings[0].evidence["over_http"] is True
+
+
+@respx.mock
+async def test_weaker_duplicate_cookie_is_judged(make_ctx):
+    result = await run(
+        make_ctx,
+        [
+            "sid=1; Secure; HttpOnly; SameSite=Lax; Path=/",
+            "sid=2; Path=/admin",
+        ],
+    )
+    assert summary(result) == {
+        ("sid", "cookie_secure_missing", "medium"),
+        ("sid", "cookie_httponly_missing", "medium"),
+        ("sid", "cookie_samesite_missing", "low"),
+    }
+    assert {f.evidence["path"] for f in result.findings} == {"/admin"}
+
+
+@respx.mock
+async def test_identical_duplicates_are_reported_once(make_ctx):
+    result = await run(make_ctx, ["sid=1; Path=/", "sid=2; Path=/"])
+    assert len(result.findings) == 3
 
 
 @pytest.mark.parametrize(

@@ -193,3 +193,58 @@ async def test_finding_ids_differ_per_path(make_ctx):
 async def test_non_200_secret_is_ignored(make_ctx, status):
     resp = httpx.Response(status, text="A=1\n", headers={"Location": "/x"} if status == 301 else {})
     assert (await run(make_ctx, {".env": resp})).findings == []
+
+
+@respx.mock
+async def test_catch_all_401_is_not_an_admin_panel(make_ctx):
+    challenge = httpx.Response(401, headers={"WWW-Authenticate": 'Basic realm="site"'})
+    result = await run(make_ctx, {}, fallback=challenge)
+    assert result.findings == []
+
+
+@respx.mock
+async def test_auth_scheme_is_recorded(make_ctx):
+    resp = httpx.Response(401, headers={"WWW-Authenticate": 'Digest realm="admin", nonce="x"'})
+    result = await run(make_ctx, {"phpmyadmin/": resp})
+    f = next(f for f in result.findings if f.evidence["path"] == "phpmyadmin/")
+    assert f.evidence["auth"] == "digest"
+
+
+@respx.mock
+async def test_failed_probes_are_counted(make_ctx):
+    ctx = make_ctx(targets={"urls": [URL]})
+    respx.get(URL).mock(return_value=httpx.Response(200, text="<html>top</html>"))
+    respx.route().mock(side_effect=httpx.ReadTimeout("slow"))
+    result = await HttpExposureCheck().run(ctx)
+    await ctx.aclose()
+    assert result.coverage[0].status == "error"
+    assert "probes failed" in result.coverage[0].detail
+
+
+@respx.mock
+async def test_query_in_target_url_does_not_move_probe_base(make_ctx):
+    url = "https://www.example.co.jp/app/?lang=ja"
+    ctx = make_ctx(targets={"urls": [url]})
+    respx.get(url).mock(return_value=httpx.Response(200, text="<html>top</html>"))
+    env = respx.get("https://www.example.co.jp/app/.env").mock(
+        return_value=httpx.Response(200, text="A=1\n")
+    )
+    respx.route().mock(return_value=NOT_FOUND)
+    result = await HttpExposureCheck().run(ctx)
+    await ctx.aclose()
+    assert env.called
+    assert any(f.evidence["path"] == ".env" for f in result.findings)
+
+
+def test_soft_404_comparison_is_bounded():
+    import time
+
+    from alertcheck.checks.network.http_exposure import _Baseline, _normalize
+
+    body = "ab" * 200_000
+    baseline = _Baseline([(200, _normalize(body), "x")])
+    resp = httpx.Response(200, text="ab" * 199_000 + "c" * 2000)
+    start = time.perf_counter()
+    for _ in range(20):
+        baseline.is_soft_404(resp, "p")
+    assert time.perf_counter() - start < 2.0

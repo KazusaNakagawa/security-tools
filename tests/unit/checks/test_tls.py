@@ -180,11 +180,12 @@ async def test_nothing_reachable_is_an_error(make_ctx):
 async def test_targets_are_deduplicated_per_host_and_port(make_ctx):
     scanner = FakeScanner()
     targets = {
+        "domains": ["www.example.co.jp"],
         "urls": [
             "https://www.example.co.jp/a/",
             "https://www.example.co.jp/b/",
             "https://www.example.co.jp:8443/",
-        ]
+        ],
     }
     respx.get(url__regex=r"http://www\.example\.co\.jp(:8443)?/.*").mock(
         side_effect=httpx.ConnectError("refused")
@@ -197,24 +198,98 @@ async def test_targets_are_deduplicated_per_host_and_port(make_ctx):
 
 
 @respx.mock
-async def test_plain_http_targets_are_not_tls_scanned(make_ctx):
+async def test_plain_http_target_gets_redirect_check_only(make_ctx):
     scanner = FakeScanner()
     ctx = make_ctx(targets={"urls": ["http://www.example.co.jp/"]})
-    plan = TlsCheck(scanner=scanner, now=lambda: NOW).plan(ctx)
-    assert [c.status for c in plan] == ["skipped_no_input"]
+    respx.get("http://www.example.co.jp/").mock(return_value=httpx.Response(200, text="plain"))
+    check = TlsCheck(scanner=scanner, now=lambda: NOW)
+    assert [c.status for c in check.plan(ctx)] == ["executed"]
+    result = await check.run(ctx)
+    await ctx.aclose()
     assert scanner.calls == []
+    assert kinds(result) == {("no_https_redirect", "medium")}
 
 
 @respx.mock
-async def test_url_prefix_target_skips_http_redirect_check(make_ctx):
-    """http:// is a different origin from an https:// URL-prefix target, so it is not probed."""
-    scanner = FakeScanner()
-    route = respx.get("http://www.example.co.jp/").mock(return_value=httpx.Response(200))
-    ctx = make_ctx(targets={"urls": ["https://www.example.co.jp/"]})
-    result = await TlsCheck(scanner=scanner, now=lambda: NOW).run(ctx)
+async def test_plain_http_target_redirecting_to_https_is_fine(make_ctx):
+    ctx = make_ctx(targets={"urls": ["http://www.example.co.jp/"]})
+    respx.get("http://www.example.co.jp/").mock(
+        return_value=httpx.Response(301, headers={"Location": "https://www.example.co.jp/"})
+    )
+    result = await TlsCheck(scanner=FakeScanner(), now=lambda: NOW).run(ctx)
     await ctx.aclose()
-    assert not route.called
     assert result.findings == []
+
+
+@respx.mock
+async def test_url_prefix_only_target_is_not_tls_scanned(make_ctx):
+    """A URL prefix authorizes that path, not a host-wide TLS scan."""
+    scanner = FakeScanner()
+    ctx = make_ctx(targets={"urls": ["https://www.example.co.jp/app/"]})
+    check = TlsCheck(scanner=scanner, now=lambda: NOW)
+    plan = check.plan(ctx)
+    assert [c.status for c in plan] == ["skipped_by_option"]
+    assert "URL-prefix" in plan[0].detail
+    result = await check.run(ctx)
+    await ctx.aclose()
+    assert scanner.calls == []
+    assert result.coverage[0].status == "skipped_by_option"
+
+
+@respx.mock
+async def test_scanner_exception_is_isolated_per_endpoint(make_ctx):
+    def flaky(host, port):
+        if port == 8443:
+            raise RuntimeError("unexpected sslyze status")
+        return good(host, port)
+
+    targets = {"domains": ["www.example.co.jp"], "urls": ["https://www.example.co.jp:8443/"]}
+    result = await run(make_ctx, FakeScanner(flaky), targets=targets, http_redirect=None)
+    status = {c.target: (c.status, c.detail) for c in result.coverage}
+    assert status["www.example.co.jp:443"][0] == "executed"
+    assert status["www.example.co.jp:8443"][0] == "error"
+    assert "unexpected sslyze status" in status["www.example.co.jp:8443"][1]
+
+
+@respx.mock
+async def test_redirect_to_dead_https_is_reported(make_ctx):
+    def down(host, port):
+        return TlsScanResult(host=host, port=port, error="connection refused")
+
+    ctx = make_ctx(targets={"domains": ["www.example.co.jp"]})
+    respx.get("http://www.example.co.jp/").mock(
+        return_value=httpx.Response(301, headers={"Location": "https://www.example.co.jp/"})
+    )
+    respx.get("https://www.example.co.jp/").mock(side_effect=httpx.ConnectError("refused"))
+    result = await TlsCheck(scanner=FakeScanner(down), now=lambda: NOW).run(ctx)
+    await ctx.aclose()
+    assert kinds(result) == {("https_unavailable", "high")}
+    assert result.findings[0].evidence["http_redirects_to_https"] is True
+
+
+@respx.mock
+async def test_endpoint_scans_do_not_overlap(make_ctx):
+    import threading
+    import time
+
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+
+    def slow(host, port):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        with lock:
+            state["active"] -= 1
+        return good(host, port)
+
+    targets = {
+        "domains": ["www.example.co.jp"],
+        "urls": ["https://www.example.co.jp:8443/", "https://www.example.co.jp:9443/"],
+    }
+    await run(make_ctx, FakeScanner(slow), targets=targets, http_redirect=None)
+    assert state["peak"] == 1
 
 
 @respx.mock
@@ -231,7 +306,10 @@ async def test_tls_scan_is_recorded_in_audit_log(make_ctx):
     assert scan["address"] == "93.184.216.34"
 
 
+@respx.mock
 def test_default_scanner_uses_configured_concurrency(make_ctx, monkeypatch):
+    # keep the HTTP redirect probe off the real network
+    respx.get("http://www.example.co.jp/").mock(side_effect=httpx.ConnectError("refused"))
     calls = []
 
     def fake_scan(host, port, ip, *, concurrency):
@@ -239,7 +317,7 @@ def test_default_scanner_uses_configured_concurrency(make_ctx, monkeypatch):
         return good(host, port)
 
     monkeypatch.setattr("alertcheck.adapters.sslyze_scan.scan", fake_scan)
-    ctx = make_ctx(targets={"urls": ["https://www.example.co.jp/"]}, limits={"concurrency": 3})
+    ctx = make_ctx(targets={"domains": ["www.example.co.jp"]}, limits={"concurrency": 3})
     import asyncio
 
     asyncio.run(TlsCheck(now=lambda: NOW).run(ctx))

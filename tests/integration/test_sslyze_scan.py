@@ -107,3 +107,23 @@ class TestHostnameMatches:
         assert not hostname_matches(cert, "a.b.example.co.jp")
         assert not hostname_matches(cert, "evil-example.co.jp")
         assert not hostname_matches(cert, "other.example")
+
+
+def test_ip_literal_requires_ip_san(tmp_path):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "203.0.113.10")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + dt.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    assert not hostname_matches(cert, "203.0.113.10")  # CN only, no IP SAN

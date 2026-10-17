@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -41,8 +42,10 @@ class Context:
     guard: ScopeGuard
     run_id: str
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # hosts whose certificate failed verification; later requests skip the verified attempt
-    untrusted_tls_hosts: set[str] = field(default_factory=set)
+    # per (scheme, host, port): True verified, False certificate failed verification.
+    # The lock makes concurrent checks share the first verification attempt.
+    tls_trust: dict[tuple[str, str, int], bool] = field(default_factory=dict)
+    tls_locks: dict[tuple[str, str, int], asyncio.Lock] = field(default_factory=dict)
     _http: GuardedHttpClient | None = None
     _http_unverified: GuardedHttpClient | None = None
 

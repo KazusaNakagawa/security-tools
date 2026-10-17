@@ -122,7 +122,7 @@ class TestHttpCheck:
 
 
 @respx.mock
-async def test_untrusted_host_is_remembered(make_ctx):
+async def test_untrusted_endpoint_is_remembered(make_ctx):
     ctx = make_ctx()
     err = httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED]")
     route = respx.get(url__startswith="https://www.example.co.jp/")
@@ -131,3 +131,86 @@ async def test_untrusted_host_is_remembered(make_ctx):
     await fetch(ctx, "https://www.example.co.jp/b")
     assert route.call_count == 3  # one failed verified attempt, then unverified only
     await ctx.aclose()
+
+
+@respx.mock
+async def test_untrusted_cache_is_per_port(make_ctx):
+    ctx = make_ctx(targets={"domains": ["example.co.jp"]})
+    err = httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED]")
+    # register the port-specific route first: respx's plain URL pattern also matches :8443
+    other = respx.get("https://example.co.jp:8443/").mock(return_value=httpx.Response(200))
+    respx.get("https://example.co.jp/").mock(side_effect=[err, httpx.Response(200)])
+    await fetch(ctx, "https://example.co.jp/")
+    resp = await fetch(ctx, "https://example.co.jp:8443/")
+    assert resp.extensions["alertcheck_unverified"] is False
+    assert other.call_count == 1
+    await ctx.aclose()
+
+
+@respx.mock
+async def test_concurrent_fetches_share_first_verification(make_ctx):
+    import asyncio
+
+    ctx = make_ctx()
+    attempts = []
+
+    def respond(request):
+        verified = len(attempts) == 0
+        attempts.append(str(request.url))
+        if verified:
+            raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED]")
+        return httpx.Response(200)
+
+    respx.get(url__startswith="https://www.example.co.jp/").mock(side_effect=respond)
+    await asyncio.gather(*(fetch(ctx, f"https://www.example.co.jp/{i}") for i in range(5)))
+    assert len(attempts) == 6  # 1 failed verified + 5 unverified
+    await ctx.aclose()
+
+
+class TestProbeBase:
+    def test_variants(self):
+        from alertcheck.checks.network.base import probe_base
+
+        assert probe_base("https://a.example") == "https://a.example/"
+        assert probe_base("https://a.example/app") == "https://a.example/app/"
+        assert probe_base("https://a.example/app/?x=1#f") == "https://a.example/app/"
+        assert probe_base("https://a.example/app?x=1") == "https://a.example/app/"
+
+
+def test_finding_target_is_redacted():
+    f = DummyCheck().finding(
+        kind="k",
+        target="https://www.example.co.jp/cb?token=abc&page=2",
+        severity=Severity.low,
+        ipa_items=["A-6"],
+        title="t",
+        description="d",
+        remediation="r",
+    )
+    assert "abc" not in f.target and "page=2" in f.target
+
+
+class PartialCheck(HttpCheck):
+    id = "http.partial"
+    ipa_items = ["A-6"]
+
+    def __init__(self, probes, failed):
+        self.probes, self.failed = probes, failed
+
+    async def inspect(self, ctx, target, response):
+        from alertcheck.checks.network.base import InspectResult
+
+        return InspectResult(findings=[], probes=self.probes, failed=self.failed)
+
+
+@respx.mock
+async def test_partial_probe_failures_are_reported(make_ctx):
+    ctx = make_ctx()
+    respx.get("https://www.example.co.jp/").mock(return_value=httpx.Response(200))
+    few = await PartialCheck(probes=100, failed=5).run(ctx)
+    many = await PartialCheck(probes=100, failed=11).run(ctx)
+    await ctx.aclose()
+    assert few.coverage[0].status == "executed"
+    assert "5/100 probes failed" in few.coverage[0].detail
+    assert many.coverage[0].status == "error"
+    assert "11/100 probes failed" in many.coverage[0].detail

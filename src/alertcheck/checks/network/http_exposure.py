@@ -24,12 +24,13 @@ import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from alertcheck.checks.network.base import HttpCheck, HttpTarget, fetch
+from alertcheck.checks.network.base import HttpCheck, HttpTarget, InspectResult, fetch, probe_base
 from alertcheck.core.context import Context
 from alertcheck.core.models import Finding, Severity
 from alertcheck.core.scope_guard import ScopeViolation
 
 PROBE_MAX_BODY = 64 * 1024
+_FAILED = object()  # sentinel: the probe request itself failed
 _SIMILARITY = 0.9
 _ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=")
 _PASSWORD_INPUT = re.compile(r"type\s*=\s*[\"']?password", re.IGNORECASE)
@@ -235,26 +236,38 @@ def looks_like_html(text: str) -> bool:
     return head.startswith(("<!doctype html", "<html")) or "<html" in head or "<body" in head
 
 
+# bounded comparison input: keeps SequenceMatcher's worst case small on huge or
+# repetitive bodies
+_COMPARE_CHARS = 4096
+
+
 def _normalize(text: str, *tokens: str) -> str:
-    text = text[:8192]
+    text = text[: _COMPARE_CHARS * 2]
     for token in tokens:
         if token:
             text = text.replace(token, "")
     text = re.sub(r"\d+", "0", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()[:_COMPARE_CHARS]
 
 
 @dataclass
 class _Baseline:
     samples: list[tuple[int, str, str]]  # (status, normalized body, probe path)
 
+    def has_status(self, status: int) -> bool:
+        return any(s == status for s, _, _ in self.samples)
+
     def is_soft_404(self, response: httpx.Response, path: str) -> bool:
         body = _normalize(response.text, path)
         for status, sample, _ in self.samples:
             if status != response.status_code:
                 continue
-            matcher = difflib.SequenceMatcher(None, sample, body, autojunk=False)
-            if matcher.quick_ratio() >= _SIMILARITY and matcher.ratio() >= _SIMILARITY:
+            matcher = difflib.SequenceMatcher(None, sample, body)
+            if (
+                matcher.real_quick_ratio() >= _SIMILARITY
+                and matcher.quick_ratio() >= _SIMILARITY
+                and matcher.ratio() >= _SIMILARITY
+            ):
                 return True
         return False
 
@@ -279,8 +292,8 @@ class HttpExposureCheck(HttpCheck):
 
     async def inspect(
         self, ctx: Context, target: HttpTarget, response: httpx.Response
-    ) -> list[Finding]:
-        base = target.url if target.url.endswith("/") else target.url + "/"
+    ) -> InspectResult:
+        base = probe_base(target.url)
         findings: list[Finding] = []
         if _LISTING.search(response.text):
             findings.append(self._finding(base, "", CATEGORIES["dir_listing"], None, response, {}))
@@ -288,21 +301,28 @@ class HttpExposureCheck(HttpCheck):
         baseline = await self._baseline(ctx, base)
         rules = self._paths if self._paths is not None else load_paths()
         results = await asyncio.gather(*(self._probe(ctx, base, rule, baseline) for rule in rules))
-        findings += [f for f in results if f is not None]
-        return findings
+        findings += [f for f in results if isinstance(f, Finding)]
+        failed = sum(1 for f in results if f is _FAILED)
+        return InspectResult(findings=findings, probes=len(rules), failed=failed)
 
     async def _probe(
         self, ctx: Context, base: str, rule: PathRule, baseline: _Baseline
-    ) -> Finding | None:
+    ) -> Finding | object | None:
         url = urljoin(base, rule.path)
         try:
             resp = await fetch(ctx, url, max_body=PROBE_MAX_BODY)
-        except (httpx.HTTPError, ScopeViolation):
-            return None
+        except ScopeViolation:
+            return None  # excluded by scope: intentionally not probed
+        except httpx.HTTPError:
+            return _FAILED
         category = CATEGORIES[rule.category]
 
-        if resp.status_code == 401 and rule.match.login_form and "www-authenticate" in resp.headers:
-            return self._finding(url, rule.path, category, Severity.low, resp, {"auth": "basic"})
+        challenge = resp.headers.get("www-authenticate", "")
+        if resp.status_code == 401 and rule.match.login_form and challenge:
+            if baseline.has_status(401):
+                return None  # the whole site challenges; says nothing about this path
+            scheme = challenge.split()[0].lower()
+            return self._finding(url, rule.path, category, Severity.low, resp, {"auth": scheme})
         if resp.status_code != 200:
             return None
         if resp.history:

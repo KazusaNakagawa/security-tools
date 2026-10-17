@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from alertcheck.checks.network.base import HttpCheck, HttpTarget, fetch
+from alertcheck.checks.network.base import HttpCheck, HttpTarget, InspectResult, fetch, probe_base
 from alertcheck.core.context import Context
 from alertcheck.core.models import Finding, Severity
 from alertcheck.core.scope_guard import ScopeViolation
@@ -54,6 +54,7 @@ SQL_ERRORS = re.compile(
     re.IGNORECASE,
 )
 _EXCERPT = 120
+_SKIPPED = object()
 
 
 def _excerpt(text: str, match: re.Match[str]) -> str:
@@ -67,15 +68,15 @@ class HttpErrorsCheck(HttpCheck):
 
     async def inspect(
         self, ctx: Context, target: HttpTarget, response: httpx.Response
-    ) -> list[Finding]:
-        base = target.url if target.url.endswith("/") else target.url + "/"
+    ) -> InspectResult:
+        base = probe_base(target.url)
         token = secrets.token_hex(8)
         urls = [urljoin(base, p.format(token=token)) for p in PROBES]
         responses = await asyncio.gather(*(self._get(ctx, u) for u in urls))
 
         found: dict[str, Finding] = {}
         for url, resp in zip(urls, responses, strict=True):
-            if resp is None:
+            if not isinstance(resp, httpx.Response):
                 continue
             text = resp.text
             if "stack_trace" not in found:
@@ -108,10 +109,13 @@ class HttpErrorsCheck(HttpCheck):
                     remediation="プレースホルダ（パラメータ化クエリ）を使い、DB のエラーを利用者に返さない。",
                     evidence={"url": url, "status": resp.status_code, "excerpt": _excerpt(text, m)},
                 )
-        return list(found.values())
+        failed = sum(1 for r in responses if r is None)
+        return InspectResult(findings=list(found.values()), probes=len(urls), failed=failed)
 
-    async def _get(self, ctx: Context, url: str) -> httpx.Response | None:
+    async def _get(self, ctx: Context, url: str) -> httpx.Response | None | object:
         try:
             return await fetch(ctx, url, max_body=128 * 1024)
-        except (httpx.HTTPError, ScopeViolation):
+        except ScopeViolation:
+            return _SKIPPED  # excluded by scope: intentionally not probed
+        except httpx.HTTPError:
             return None

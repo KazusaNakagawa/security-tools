@@ -12,7 +12,34 @@ from alertcheck.core.context import Context
 from alertcheck.core.models import Finding, Severity
 
 _VERSION = re.compile(r"\d+\.\d+")
-_MAX_AGE = re.compile(r"max-age\s*=\s*\"?(\d+)", re.IGNORECASE)
+_MAX_AGE_VALUE = re.compile(r'(\d+)|"(\d+)"')
+
+
+def hsts_max_age(value: str) -> int | None:
+    """max-age of a Strict-Transport-Security value, or None if absent or malformed."""
+    for directive in value.split(";"):
+        name, _, raw = directive.partition("=")
+        if name.strip().lower() != "max-age":
+            continue
+        match = _MAX_AGE_VALUE.fullmatch(raw.strip())
+        return int(match.group(1) or match.group(2)) if match else None
+    return None
+
+
+def has_frame_ancestors(csp: str) -> bool:
+    """True only for a real frame-ancestors directive with at least one source."""
+    for directive in csp.split(";"):
+        tokens = directive.split()
+        if tokens and tokens[0].lower() == "frame-ancestors" and len(tokens) > 1:
+            return True
+    return False
+
+
+def valid_x_frame_options(value: str) -> bool:
+    # ALLOW-FROM is ignored by current browsers, so it gives no protection
+    return value.strip().lower() in ("deny", "sameorigin")
+
+
 _IPA = ["A-6"]
 _OWASP_HEADERS = "https://owasp.org/www-project-secure-headers/"
 
@@ -52,17 +79,15 @@ class HttpHeadersCheck(HttpCheck):
                 )
             )
 
-        if url.startswith("https://"):
-            match = _MAX_AGE.search(h.get("strict-transport-security", ""))
-            if not match or int(match.group(1)) == 0:
-                add(
-                    "hsts_missing",
-                    Severity.medium,
-                    "HSTS が設定されていない",
-                    "Strict-Transport-Security がないため、初回アクセスや中間者攻撃で HTTP に格下げされうる。",
-                    "Strict-Transport-Security: max-age=31536000; includeSubDomains を付与する。",
-                    value=h.get("strict-transport-security"),
-                )
+        if url.startswith("https://") and not hsts_max_age(h.get("strict-transport-security", "")):
+            add(
+                "hsts_missing",
+                Severity.medium,
+                "HSTS が設定されていない",
+                "Strict-Transport-Security がないため、初回アクセスや中間者攻撃で HTTP に格下げされうる。",
+                "Strict-Transport-Security: max-age=31536000; includeSubDomains を付与する。",
+                value=h.get("strict-transport-security"),
+            )
 
         csp = h.get("content-security-policy")
         if not csp:
@@ -73,8 +98,8 @@ class HttpHeadersCheck(HttpCheck):
                 "CSP がないため、XSS が成立した場合の被害を抑えられない。",
                 "Content-Security-Policy を設定する（まず default-src 'self' から始める）。",
             )
-        has_frame_ancestors = bool(csp) and "frame-ancestors" in csp.lower()
-        if not has_frame_ancestors and not h.get("x-frame-options"):
+        framed = bool(csp) and has_frame_ancestors(csp)
+        if not framed and not valid_x_frame_options(h.get("x-frame-options", "")):
             add(
                 "clickjacking",
                 Severity.medium,

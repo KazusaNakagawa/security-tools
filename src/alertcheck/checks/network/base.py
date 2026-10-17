@@ -6,13 +6,13 @@ import asyncio
 import ssl
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
 from alertcheck.core.context import Context
 from alertcheck.core.models import CheckResult, Coverage, Finding, Severity
-from alertcheck.core.scope_guard import ScopeViolation
+from alertcheck.core.scope_guard import ScopeViolation, redact_url
 
 DEFAULT_MAX_BODY = 512 * 1024
 
@@ -67,19 +67,70 @@ async def fetch(
     Certificate problems are reported by the tls check, so other checks still
     inspect the site. The unverified client never carries credentials.
     """
-    host = urlsplit(url).hostname or ""
-    if host not in ctx.untrusted_tls_hosts:
-        try:
-            response = await ctx.http.get(url, max_body=max_body, **kwargs)
-            response.extensions["alertcheck_unverified"] = False
-            return response
-        except httpx.ConnectError as e:
-            if not _is_cert_error(e):
-                raise
-        ctx.untrusted_tls_hosts.add(host)
+    endpoint = _endpoint(url)
+    if endpoint[0] == "https" and endpoint not in ctx.tls_trust:
+        async with ctx.tls_locks.setdefault(endpoint, asyncio.Lock()):
+            if endpoint not in ctx.tls_trust:
+                try:
+                    return await _verified(ctx, url, max_body, kwargs)
+                except httpx.ConnectError as e:
+                    if not _is_cert_error(e):
+                        raise
+                    # mark the endpoint that actually failed (a redirect may have moved on)
+                    failed = _endpoint(str(e.request.url)) if _has_request(e) else endpoint
+                    ctx.tls_trust[failed] = False
+                    if failed != endpoint:
+                        raise
+    if ctx.tls_trust.get(endpoint, True):
+        return await _verified(ctx, url, max_body, kwargs)
     response = await ctx.http_unverified.get(url, max_body=max_body, **kwargs)
     response.extensions["alertcheck_unverified"] = True
     return response
+
+
+async def _verified(
+    ctx: Context, url: str, max_body: int, kwargs: dict[str, Any]
+) -> httpx.Response:
+    response = await ctx.http.get(url, max_body=max_body, **kwargs)
+    ctx.tls_trust.setdefault(_endpoint(url), True)
+    response.extensions["alertcheck_unverified"] = False
+    return response
+
+
+def _endpoint(url: str) -> tuple[str, str, int]:
+    parts = urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    return (parts.scheme, (parts.hostname or "").lower(), port)
+
+
+def _has_request(exc: httpx.HTTPError) -> bool:
+    try:
+        exc.request  # noqa: B018 - raises RuntimeError when unset
+    except RuntimeError:
+        return False
+    return True
+
+
+def probe_base(url: str) -> str:
+    """Directory URL that relative probe paths resolve against (no query or fragment)."""
+    parts = urlsplit(url)
+    path = parts.path or "/"
+    if not path.endswith("/"):
+        path += "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+@dataclass
+class InspectResult:
+    """Findings plus how many sub-requests were attempted and failed."""
+
+    findings: list[Finding]
+    probes: int = 0
+    failed: int = 0
+
+
+# above this share of failed probes a target's result is not trustworthy
+_MAX_FAILED_RATIO = 0.1
 
 
 class HttpCheck:
@@ -132,7 +183,7 @@ class HttpCheck:
         artifacts: dict[str, dict[str, Any]] = {}
         try:
             effective, response = await self._base_response(ctx, target)
-            findings = await self.inspect(ctx, effective, response)
+            result = await self.inspect(ctx, effective, response)
             artifacts = self.artifacts(effective, response)
         except (ScopeViolation, httpx.HTTPError) as e:
             detail = f"{type(e).__name__}: {e}"
@@ -141,13 +192,22 @@ class HttpCheck:
                 Coverage(check_id=self.id, target=target.url, status="error", detail=detail),
                 {},
             )
-        detail = f"via {effective.url}" if effective.url != target.url else ""
-        coverage = Coverage(check_id=self.id, target=target.url, status="executed", detail=detail)
-        return findings, coverage, artifacts
+        if isinstance(result, list):
+            result = InspectResult(findings=result)
+        notes = [f"via {effective.url}"] if effective.url != target.url else []
+        status: Literal["executed", "error"] = "executed"
+        if result.failed:
+            notes.append(f"{result.failed}/{result.probes} probes failed")
+            if result.failed > result.probes * _MAX_FAILED_RATIO:
+                status = "error"
+        coverage = Coverage(
+            check_id=self.id, target=target.url, status=status, detail="; ".join(notes)
+        )
+        return result.findings, coverage, artifacts
 
     async def inspect(
         self, ctx: Context, target: HttpTarget, response: httpx.Response
-    ) -> list[Finding]:
+    ) -> list[Finding] | InspectResult:
         raise NotImplementedError
 
     def artifacts(self, target: HttpTarget, response: httpx.Response) -> dict[str, dict[str, Any]]:
@@ -172,7 +232,8 @@ class HttpCheck:
         return Finding.create(
             check_id=self.id,
             kind=f"{kind}:{variant}" if variant else kind,
-            target=target,
+            # targets end up in reports; never keep secrets from a URL there
+            target=redact_url(target) if "://" in target else target,
             ipa_items=ipa_items,
             severity=severity,
             title=title,
