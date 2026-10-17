@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,6 +41,8 @@ class Context:
     guard: ScopeGuard
     run_id: str
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # hosts whose certificate failed verification; later requests skip the verified attempt
+    untrusted_tls_hosts: set[str] = field(default_factory=set)
     _http: GuardedHttpClient | None = None
     _http_unverified: GuardedHttpClient | None = None
 
@@ -95,6 +98,16 @@ class Context:
             timeout=limits.timeout_sec,
             verify=verify,
         )
+
+    def audit(self, entry: dict[str, Any]) -> None:
+        """Record network activity that does not go through GuardedHttpClient (e.g. sslyze)."""
+        path = self.request_log
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = {"ts": datetime.now(UTC).isoformat(), **entry}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
     async def aclose(self) -> None:
         for client in (self._http, self._http_unverified):

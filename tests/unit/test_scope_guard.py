@@ -509,3 +509,54 @@ async def test_real_connection_uses_pinned_address(tmp_path):
         resp = await client.get(f"http://pinned.invalid:{port}/")
     assert resp.text == "ok"
     assert b"host: pinned.invalid" in seen[0].lower()
+
+
+class TestMaxBody:
+    @respx.mock
+    async def test_body_is_truncated_to_max_body(self):
+        respx.get("https://www.example.co.jp/big.sql").mock(
+            return_value=httpx.Response(200, content=b"x" * 10_000)
+        )
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/big.sql", max_body=1024)
+        assert len(resp.content) == 1024
+        assert resp.extensions["alertcheck_truncated"] is True
+
+    @respx.mock
+    async def test_small_body_is_not_marked_truncated(self):
+        respx.get("https://www.example.co.jp/s").mock(return_value=httpx.Response(200, text="ok"))
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/s", max_body=1024)
+        assert resp.text == "ok"
+        assert resp.extensions["alertcheck_truncated"] is False
+
+    @respx.mock
+    async def test_exact_limit_is_not_truncated(self):
+        respx.get("https://www.example.co.jp/e").mock(
+            return_value=httpx.Response(200, content=b"y" * 1024)
+        )
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/e", max_body=1024)
+        assert len(resp.content) == 1024
+        assert resp.extensions["alertcheck_truncated"] is False
+
+    @respx.mock
+    async def test_redirects_still_followed_with_max_body(self):
+        respx.get("https://www.example.co.jp/a").mock(
+            return_value=httpx.Response(302, headers={"Location": "/b"})
+        )
+        respx.get("https://www.example.co.jp/b").mock(return_value=httpx.Response(200, text="b"))
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            resp = await client.get("https://www.example.co.jp/a", max_body=10)
+        assert resp.text == "b"
+        assert len(resp.history) == 1
+
+    async def test_non_positive_max_body_is_rejected(self):
+        guard = ScopeGuard(make_scope(), resolver=public_resolver())
+        async with GuardedHttpClient(guard) as client:
+            with pytest.raises(ValueError, match="max_body"):
+                await client.get("https://www.example.co.jp/", max_body=0)

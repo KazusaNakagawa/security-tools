@@ -427,7 +427,50 @@ class GuardedHttpClient:
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         return await self.request("GET", url, **kwargs)
 
-    async def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    async def _send(
+        self, method: str, url: str, max_body: int | None, kwargs: dict[str, Any]
+    ) -> httpx.Response:
+        if max_body is None:
+            return await self._client.request(method, url, **kwargs)
+        request = self._client.build_request(method, url, **kwargs)
+        response = await self._client.send(request, stream=True)
+        try:
+            chunks: list[bytes] = []
+            size = 0
+            truncated = False
+            async for chunk in response.aiter_bytes():
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > max_body:
+                    truncated = True
+                    break
+        finally:
+            await response.aclose()
+        content = b"".join(chunks)[:max_body]
+        limited = httpx.Response(
+            response.status_code,
+            # the body is already decoded and possibly cut, so these no longer apply
+            headers=[
+                (k, v)
+                for k, v in response.headers.multi_items()
+                if k not in ("content-encoding", "content-length", "transfer-encoding")
+            ],
+            content=content,
+            request=request,
+        )
+        limited.extensions["alertcheck_truncated"] = truncated
+        return limited
+
+    async def request(
+        self, method: str, url: str, *, max_body: int | None = None, **kwargs: Any
+    ) -> httpx.Response:
+        """Send a scope-checked request.
+
+        ``max_body`` caps how many body bytes are read (the rest is discarded),
+        so probing a large dump or archive never downloads it in full.
+        """
+        if max_body is not None and max_body <= 0:
+            raise ValueError("max_body must be positive")
         if "follow_redirects" in kwargs:
             raise ValueError("follow_redirects is not supported; redirects are checked per hop")
         if not self.verify and _has_credentials(kwargs):
@@ -461,7 +504,7 @@ class GuardedHttpClient:
             host = urlsplit(url).hostname or ""
             try:
                 async with self._limiter.slot(host):
-                    response = await self._client.request(method, url, **kwargs)
+                    response = await self._send(method, url, max_body, kwargs)
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 self._log_outcome({"event": "error", "url": safe_url, "error": error})
