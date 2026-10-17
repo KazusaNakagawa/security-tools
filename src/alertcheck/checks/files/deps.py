@@ -115,7 +115,10 @@ class DepsCheck:
                 scanners_ran += 1
                 records += report.vulns
             osv_records = await self._tool(
-                osv.args(str(local), offline=offline), osv.parse, notes, osv.OK_EXIT_CODES
+                osv.args(str(local), offline=offline),
+                lambda out: osv.parse(out, root=str(local)),
+                notes,
+                osv.OK_EXIT_CODES,
             )
             if osv_records is not None:
                 scanners_ran += 1

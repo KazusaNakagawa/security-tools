@@ -105,3 +105,25 @@ class TestNuclei:
         assert args[args.index("-etags") + 1] == "intrusive,dos,fuzz,bruteforce"
         assert args[args.index("-rl") + 1] == "5"
         assert "-list" in args and "/tmp/targets.txt" in args
+
+
+class TestOsvPaths:
+    def test_target_is_relative_to_scanned_root(self):
+        text = load("osv.json").replace(
+            "/ws/inputs/repos/shop/composer.lock", "/ws/inputs/repos/shop/apps/api/composer.lock"
+        )
+        records = osv.parse(text, root="/ws/inputs/repos/shop")
+        assert {r.target for r in records} == {"apps/api/composer.lock"}
+
+    def test_path_outside_root_falls_back_to_name(self):
+        records = osv.parse(load("osv.json"), root="/elsewhere")
+        assert {r.target for r in records} == {"composer.lock"}
+
+
+def test_same_package_in_two_files_stays_separate():
+    from dataclasses import replace
+
+    base = trivy.parse(load("trivy_fs.json")).vulns[0]
+    other = replace(base, target="apps/admin/composer.lock")
+    merged = merge_records([base, other])
+    assert sorted(r.target for r in merged) == ["apps/admin/composer.lock", "composer.lock"]

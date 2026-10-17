@@ -63,9 +63,10 @@ def _richer(a: str | None, b: str | None) -> str | None:
 
 
 def merge_records(records: list[VulnRecord]) -> list[VulnRecord]:
-    merged: dict[tuple[str, str, str], VulnRecord] = {}
+    # the same issue reported by both tools for the same file merges; other files stay separate
+    merged: dict[tuple[str, str, str, str], VulnRecord] = {}
     for r in records:
-        k = (r.key, r.package, r.installed)
+        k = (r.key, r.package, r.installed, r.target)
         cur = merged.get(k)
         if cur is None:
             merged[k] = r

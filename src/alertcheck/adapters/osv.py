@@ -39,14 +39,25 @@ def _group_score(groups: list[dict[str, Any]], vuln_id: str) -> float | None:
     return None
 
 
-def parse(text: str) -> list[VulnRecord]:
+def _relative(path: str, root: str | None) -> str:
+    """Path of the scanned file relative to the scan root (the tool reports absolute paths)."""
+    file = PurePosixPath(path)
+    if root:
+        try:
+            return file.relative_to(PurePosixPath(root)).as_posix()
+        except ValueError:
+            pass
+    return file.name
+
+
+def parse(text: str, root: str | None = None) -> list[VulnRecord]:
     try:
         data = json.loads(text)
     except ValueError as e:
         raise ValueError(f"osv-scanner output is not JSON: {e}") from e
     records = []
     for result in data.get("results") or []:
-        target = PurePosixPath((result.get("source") or {}).get("path", "")).name
+        target = _relative((result.get("source") or {}).get("path", ""), root)
         for pkg in result.get("packages") or []:
             meta = pkg.get("package") or {}
             groups = pkg.get("groups") or []

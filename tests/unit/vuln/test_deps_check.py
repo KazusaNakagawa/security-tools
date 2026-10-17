@@ -203,3 +203,17 @@ class TestOffline:
         await run(ws, cache, [{"path": "inputs/repos/shop"}], runner)
         for call in runner.calls:
             assert call[-1] == str((ws / "inputs" / "repos" / "shop").resolve())
+
+
+async def test_osv_targets_keep_subdirectories(workspace):
+    ws, cache = workspace
+    root = (ws / "inputs" / "repos" / "shop").resolve()
+    osv_out = fixture("osv.json").replace(
+        "/ws/inputs/repos/shop/composer.lock", f"{root}/apps/api/composer.lock"
+    )
+    runner = FakeRunner({"osv-scanner": osv_out})
+    _, result = await run(ws, cache, [{"path": "inputs/repos/shop"}], runner)
+    targets = {
+        f.target for f in result.findings if f.evidence.get("kind") in ("unpatched", "no_fix")
+    }
+    assert targets == {"inputs/repos/shop/apps/api/composer.lock"}
