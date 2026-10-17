@@ -167,13 +167,13 @@ async def test_https_unavailable_but_http_serves(make_ctx):
 
 
 @respx.mock
-async def test_nothing_reachable_is_an_error(make_ctx):
+async def test_domain_with_nothing_reachable_is_skipped(make_ctx):
     def down(host, port):
         return TlsScanResult(host=host, port=port, error="connection refused")
 
     result = await run(make_ctx, FakeScanner(down), http_redirect=None)
     assert result.findings == []
-    assert result.coverage[0].status == "error"
+    assert result.coverage[0].status == "skipped_no_input"  # explicit URLs still error
 
 
 @respx.mock
@@ -322,3 +322,32 @@ def test_default_scanner_uses_configured_concurrency(make_ctx, monkeypatch):
 
     asyncio.run(TlsCheck(now=lambda: NOW).run(ctx))
     assert calls == [3]
+
+
+@respx.mock
+async def test_host_without_any_web_service_is_skipped(make_ctx):
+    def down(host, port):
+        return TlsScanResult(host=host, port=port, error="connection refused")
+
+    ctx = make_ctx(targets={"hosts": ["198.51.100.7"]})
+    respx.get("http://198.51.100.7/").mock(side_effect=httpx.ConnectError("refused"))
+    result = await TlsCheck(scanner=FakeScanner(down), now=lambda: NOW).run(ctx)
+    await ctx.aclose()
+    assert result.findings == []
+    assert result.coverage[0].status == "skipped_no_input"
+
+
+@respx.mock
+async def test_explicit_https_url_down_is_still_an_error(make_ctx):
+    def down(host, port):
+        return TlsScanResult(host=host, port=port, error="connection refused")
+
+    ctx = make_ctx(
+        targets={"domains": ["www.example.co.jp"], "urls": ["https://www.example.co.jp:8443/"]}
+    )
+    respx.get("http://www.example.co.jp/").mock(side_effect=httpx.ConnectError("refused"))
+    result = await TlsCheck(scanner=FakeScanner(down), now=lambda: NOW).run(ctx)
+    await ctx.aclose()
+    status = {c.target: c.status for c in result.coverage}
+    assert status["www.example.co.jp:8443"] == "error"
+    assert status["www.example.co.jp:443"] == "skipped_no_input"

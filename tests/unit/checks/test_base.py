@@ -214,3 +214,31 @@ async def test_partial_probe_failures_are_reported(make_ctx):
     assert "5/100 probes failed" in few.coverage[0].detail
     assert many.coverage[0].status == "error"
     assert "11/100 probes failed" in many.coverage[0].detail
+
+
+class TestNoWebService:
+    @respx.mock
+    async def test_auto_target_without_web_service_is_skipped(self, make_ctx):
+        ctx = make_ctx(targets={"hosts": ["198.51.100.7"]})
+        respx.get("https://198.51.100.7/").mock(side_effect=httpx.ConnectError("refused"))
+        respx.get("http://198.51.100.7/").mock(side_effect=httpx.ConnectError("refused"))
+        result = await DummyCheck().run(ctx)
+        await ctx.aclose()
+        assert result.coverage[0].status == "skipped_no_input"
+        assert "no HTTP service" in result.coverage[0].detail
+
+    @respx.mock
+    async def test_explicit_url_refused_is_still_an_error(self, make_ctx):
+        ctx = make_ctx(targets={"urls": ["https://www.example.co.jp/"]})
+        respx.get("https://www.example.co.jp/").mock(side_effect=httpx.ConnectError("refused"))
+        result = await DummyCheck().run(ctx)
+        await ctx.aclose()
+        assert result.coverage[0].status == "error"
+
+    @respx.mock
+    async def test_auto_target_timeout_is_an_error(self, make_ctx):
+        ctx = make_ctx(targets={"hosts": ["198.51.100.7"]})
+        respx.get("https://198.51.100.7/").mock(side_effect=httpx.ConnectTimeout("slow"))
+        result = await DummyCheck().run(ctx)
+        await ctx.aclose()
+        assert result.coverage[0].status == "error"

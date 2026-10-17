@@ -39,6 +39,7 @@ class TlsCheck:
 
     def _targets(self, ctx: Context) -> tuple[list[tuple[str, int]], list[str], list[str]]:
         """(HTTPS endpoints to scan, plain-HTTP URLs to check, URL-prefix-only endpoints)."""
+        self._auto: set[tuple[str, int]] = set()
         endpoints: list[tuple[str, int]] = []
         prefix_only: list[str] = []
         http_urls: list[str] = []
@@ -59,6 +60,8 @@ class TlsCheck:
                 continue
             if endpoint not in endpoints:
                 endpoints.append(endpoint)
+            if t.http_fallback:
+                self._auto.add(endpoint)
         return endpoints, http_urls, prefix_only
 
     def plan(self, ctx: Context) -> list[Coverage]:
@@ -165,6 +168,12 @@ class TlsCheck:
                     http_redirects_to_https=redirects,
                 )
                 return [f], Coverage(check_id=self.id, target=target, status="executed")
+            if (host, port) in self._auto:
+                # derived from a bare host/domain that serves neither HTTPS nor HTTP
+                detail = "no HTTPS/HTTP service on host"
+                return [], Coverage(
+                    check_id=self.id, target=target, status="skipped_no_input", detail=detail
+                )
             return [], Coverage(
                 check_id=self.id, target=target, status="error", detail=scan.error[:300]
             )

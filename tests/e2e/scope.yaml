@@ -1,0 +1,13 @@
+organization: alertcheck E2E
+authorization:
+  confirmed: true
+  approver: CI
+  confirmed_at: 2026-10-17
+  note: 内部 Docker ネットワーク上の検証用ターゲット
+targets:
+  hosts: [172.30.0.10, 172.30.0.12]
+  urls: [http://172.30.0.10/app/]
+limits:
+  rps_per_host: 50
+  concurrency: 8
+  timeout_sec: 5

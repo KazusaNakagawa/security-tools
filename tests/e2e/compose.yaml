@@ -1,0 +1,51 @@
+# Deliberately misconfigured target for end-to-end tests (design §12).
+# Everything lives on an internal network: nothing is published to the host
+# and nothing can reach the internet.
+name: alertcheck-e2e
+
+services:
+  web:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    volumes:
+      - ./target/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./target/html:/usr/share/nginx/html:ro
+    networks:
+      e2e: {ipv4_address: 172.30.0.10}
+    depends_on: [app]
+
+  app:
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    command: ["node", "/app/server.js"]
+    volumes:
+      - ./target/app:/app:ro
+    networks:
+      e2e: {ipv4_address: 172.30.0.11}
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    networks:
+      e2e: {ipv4_address: 172.30.0.12}
+
+  scanner:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    image: alertcheck:local
+    volumes:
+      - ${E2E_WORKSPACE:?set E2E_WORKSPACE}:/workspace
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/scanner
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [e2e]
+    profiles: [scanner]
+
+networks:
+  e2e:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
