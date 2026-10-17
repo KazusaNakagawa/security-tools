@@ -22,6 +22,7 @@ from alertcheck.core.orchestrator import Orchestrator
 from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
 from alertcheck.infra.factory import Infra, build_infra
+from alertcheck.judge.judge import judge, score
 from alertcheck.vulndb import cache_dir, update_eol, update_kev
 
 EXIT_OK, EXIT_HIGH, EXIT_CRITICAL, EXIT_ERROR = 0, 1, 2, 3
@@ -181,12 +182,19 @@ def scan(
     ctx = Context.create(scope=scope, infra=infra, options=options)
     run = asyncio.run(Orchestrator(registry, ctx).run())
     run.answers = answers
+    run.items = judge(
+        run.findings, run.coverage, answers, available_checks={c.id for c in registry.all()}
+    )
+    run.score = score(run.items, run.findings)
     infra.store.save_run(run)
 
     findings = sorted(run.findings, key=lambda f: (-f.severity.rank, f.check_id, f.target))
     results_path = _write_findings(infra, run, findings)
 
+    if run.score.critical:
+        typer.echo(f"警告: critical の検出が {run.score.critical} 件あります（最優先で対応）")
     typer.echo(f"Run {run.id}: {len(findings)} finding(s)")
+    _echo_score(run)
     for sev in Severity:
         n = sum(1 for f in findings if f.severity == sev)
         if n:
@@ -209,6 +217,28 @@ def scan(
     raise typer.Exit(_exit_code(run))
 
 
+_VERDICT_LABELS = {
+    "achieved": "達成",
+    "partial": "一部達成",
+    "not_achieved": "未達",
+    "unverified": "未確認",
+    "na": "対象外",
+}
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{value * 100:.0f}%"
+
+
+def _echo_score(run: RunResult) -> None:
+    assert run.score is not None
+    counts = "  ".join(f"{_VERDICT_LABELS[k]} {v}" for k, v in run.score.counts.items())
+    typer.echo(f"  達成率 {_pct(run.score.overall)}  ({counts})")
+    for item in run.items:
+        if item.mismatch:
+            typer.echo(f"  食い違い {item.ipa_item}: {item.rationale}")
+
+
 def _write_findings(infra: Infra, run: RunResult, findings: list[Finding]) -> str:
     """Interim machine-readable output until the report command (#7) lands."""
     payload = {
@@ -216,6 +246,8 @@ def _write_findings(infra: Infra, run: RunResult, findings: list[Finding]) -> st
         "run": run.model_dump(
             mode="json", include={"id", "started_at", "finished_at", "tool_version", "options"}
         ),
+        "score": run.score.model_dump(mode="json") if run.score else None,
+        "items": [i.model_dump(mode="json") for i in run.items],
         "findings": [f.model_dump(mode="json") for f in findings],
         "coverage": [c.model_dump(mode="json") for c in run.coverage],
     }
@@ -293,12 +325,65 @@ async def _db_update(cache: Path) -> bool:
 
 
 @questionnaire_app.command("init")
-def questionnaire_init() -> None:
+def questionnaire_init(
+    workspace: WorkspaceOpt = Path("."),
+    force: Annotated[bool, typer.Option(help="Overwrite an existing file.")] = False,
+) -> None:
     """Write an empty questionnaire answer file."""
-    raise _not_implemented("questionnaire init", "issue #6")
+    path = workspace / "questionnaire.yaml"
+    if path.exists() and not force:
+        typer.echo(f"skip    {path} (exists; use --force to overwrite)")
+        return
+    workspace.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, render_answers_template(load_questions()))
+    typer.echo(f"create  {path}")
 
 
 @questionnaire_app.command("show")
-def questionnaire_show() -> None:
-    """Show questionnaire answers."""
-    raise _not_implemented("questionnaire show", "issue #6")
+def questionnaire_show(workspace: WorkspaceOpt = Path(".")) -> None:
+    """Show each question with its current answer."""
+    questions = load_questions()
+    path = workspace / "questionnaire.yaml"
+    try:
+        answers = {a.question_id: a for a in load_answers(path)} if path.is_file() else {}
+    except ConfigError as e:
+        raise _fail(str(e)) from None
+    answered = sum(1 for a in answers.values() if a.value is not None)
+    typer.echo(f"回答済み {answered}/{len(questions)}")
+    for q in questions:
+        a = answers.get(q.id)
+        value = a.value if a and a.value is not None else "未回答"
+        typer.echo(f"  {value:<9} {q.id}  [{', '.join(q.ipa_items)}] {q.text}")
+
+
+@app.command()
+def runs(
+    run_id: Annotated[str | None, typer.Argument(help="Show this run's IPA item verdicts.")] = None,
+    workspace: WorkspaceOpt = Path("."),
+) -> None:
+    """List stored runs, or show one run's verdicts."""
+    try:
+        infra = build_infra(os.environ.get("ALERTCHECK_RUNTIME", "local"), workspace)
+    except ConfigError as e:
+        raise _fail(str(e)) from None
+    if run_id is None:
+        stored = infra.store.list_runs()
+        if not stored:
+            typer.echo("no runs yet; run 'alertcheck scan'")
+        for r in stored:
+            s = r.score
+            summary = f"達成率 {_pct(s.overall)} critical {s.critical} high {s.high}" if s else ""
+            typer.echo(
+                f"  {r.id}  {r.started_at:%Y-%m-%d %H:%M}  {len(r.findings)} findings  {summary}"
+            )
+        return
+    run = infra.store.get_run(run_id)
+    if run is None:
+        raise _fail(f"run not found: {run_id}")
+    typer.echo(f"Run {run.id}  {run.started_at:%Y-%m-%d %H:%M} UTC  {len(run.findings)} finding(s)")
+    if run.score:
+        _echo_score(run)
+    for item in run.items:
+        typer.echo(f"  {item.ipa_item:<5} {item.verdict:<13} {item.rationale}")
+        for m in item.missing_inputs:
+            typer.echo(f"        不足: {m}")

@@ -76,10 +76,11 @@ class NullNotifier:
 
 
 class InMemoryResultStore:
-    """Placeholder until the SQLite store lands (issue #6)."""
+    """Non-persistent store for tests."""
 
     def __init__(self) -> None:
         self._runs: dict[str, RunResult] = {}
+        self._snapshots: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
     def save_run(self, run: RunResult) -> None:
         self._runs[run.id] = run
@@ -94,5 +95,15 @@ class InMemoryResultStore:
         earlier = [r for r in self._runs.values() if r.started_at < current.started_at]
         return max(earlier, key=lambda r: r.started_at, default=None)
 
+    def list_runs(self) -> list[RunResult]:
+        return sorted(self._runs.values(), key=lambda r: r.started_at, reverse=True)
+
+    def latest_run(self) -> RunResult | None:
+        runs = self.list_runs()
+        return runs[0] if runs else None
+
+    def save_account_snapshot(self, run_id: str, service: str, rows: list[dict[str, Any]]) -> None:
+        self._snapshots[(run_id, service)] = list(rows)
+
     def account_snapshot(self, run_id: str, service: str) -> list[dict[str, Any]]:
-        return []
+        return list(self._snapshots.get((run_id, service), []))

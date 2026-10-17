@@ -1,0 +1,59 @@
+# IPA 注意喚起の項目定義（仕様書 4 章、設計書 8.1 / 付録 B）
+# requires_coverage: 判定の根拠になる検査（いずれかが実行されれば自動判定できる）
+# questions: 関連する質問票の質問（status 形式のもの）
+# 対象外の判定は質問票の na_when_no（q_has_public_app = no で A 系）を使う
+categories:
+  inspection: 速やかに実施すべき点検
+  app_measure: 外部公開アプリケーションの対策
+  service_measure: 外部サービスの対策
+  data_measure: 保有データの対策
+  management: 経営者が認識すべき 3 原則
+
+items:
+  P1-1: {title: 独自構築した外部公開アプリケーション・サービスの把握, category: inspection, requires_coverage: [discovery, ports], questions: [q_p1_inventory]}
+  P1-2: {title: 直近ログの異常確認（エラー量・平時との差異）, category: inspection, requires_coverage: [logs.access], questions: [q_p1_log_reviewed]}
+  P1-3: {title: 確認期間の段階的な拡大（1 か月、続いて 3 か月）, category: inspection, requires_coverage: [logs.access], questions: [q_p1_log_reviewed]}
+  P1-4: {title: 未適用の脆弱性対応パッチの確認と適用, category: inspection, requires_coverage: [deps, vuln.version, vuln.templates], questions: [q_p1_patch]}
+  P2-1: {title: 利用中のクラウドサービス・VPN 等の網羅的な把握, category: inspection, requires_coverage: [ports, vuln.version], questions: [q_p2_inventory]}
+  P2-2: {title: 外部サービスごとのログの異常確認, category: inspection, requires_coverage: [logs.auth], questions: [q_p2_log_reviewed]}
+  P2-3: {title: 異常なアカウント（不正作成・削除済みの再有効化等）の確認, category: inspection, requires_coverage: [accounts], questions: [q_p2_accounts]}
+  P3-1: {title: 不要な情報を保有していないかの再点検, category: inspection, requires_coverage: [data], questions: [q_p3_minimize]}
+  P3-2: {title: 保有する情報資産の正確な把握, category: inspection, requires_coverage: [data], questions: [q_p3_inventory]}
+  A-1: {title: 外部公開範囲の見直し, category: app_measure, requires_coverage: [ports, http.exposure], questions: [q_a1_exposure_reviewed]}
+  A-2: {title: 認証機能の強化（多要素認証・パスワード）, category: app_measure, requires_coverage: [http.cookies, auth.passive], questions: [q_a2_mfa, q_a2_password]}
+  A-3: {title: アカウント権限付与の見直し, category: app_measure, requires_coverage: [accounts], questions: [q_a3_privilege]}
+  A-4: {title: API 連携等の管理状況の見直し, category: app_measure, requires_coverage: [api], questions: [q_a4_api]}
+  A-5: {title: ログ取得内容・保持期間の見直し, category: app_measure, requires_coverage: [logs.access], questions: [q_a5_logs]}
+  A-6: {title: 追加のセキュリティ対策の検討, category: app_measure, requires_coverage: [http.headers, http.errors, tls], questions: [q_a6_extra]}
+  S-1: {title: 外部サービスの認証機能の強化, category: service_measure, requires_coverage: [accounts, cloud.aws], questions: [q_s1_mfa]}
+  S-2: {title: アカウント付与範囲の見直し, category: service_measure, requires_coverage: [accounts, cloud.aws], questions: []}
+  S-3: {title: アカウント棚卸し運用の見直し, category: service_measure, requires_coverage: [accounts], questions: [q_s3_review]}
+  S-4: {title: API 管理状況の確認, category: service_measure, requires_coverage: [cloud.aws], questions: [q_s4_api]}
+  S-5: {title: ログ取得・保持期間の見直し, category: service_measure, requires_coverage: [cloud.aws], questions: [q_a5_logs]}
+  D-1: {title: データ保有の是非の再検討, category: data_measure, requires_coverage: [data], questions: [q_p3_minimize]}
+  D-2: {title: 保管場所の再検討, category: data_measure, requires_coverage: [http.exposure, cloud.aws], questions: [q_d2_location]}
+  D-3: {title: アクセスログ取得・保持期間の見直し, category: data_measure, requires_coverage: [], questions: [q_d3_access_log]}
+  D-4: {title: データの暗号化, category: data_measure, requires_coverage: [tls, cloud.aws], questions: [q_d4_encryption]}
+  M-1: {title: サイバーセキュリティリスクの認識と経営者のリーダーシップ, category: management, requires_coverage: [], questions: [q_m1_leadership]}
+  M-2: {title: サプライチェーン全体を含む対策への目配り, category: management, requires_coverage: [], questions: [q_m2_supply_chain]}
+  M-3: {title: 平時・緊急時の関係者とのコミュニケーション, category: management, requires_coverage: [], questions: [q_m3_communication]}
+
+# 未実行の検査を「何を用意すれば判定できるか」に言い換える
+input_hints:
+  discovery: 診断対象のドメイン（scope.yaml の targets.domains）と資産台帳（asset_inventory）
+  ports: 診断対象のホスト（scope.yaml の targets）と authorization.confirmed
+  http.exposure: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed
+  http.headers: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed
+  http.cookies: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed
+  http.errors: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed
+  tls: HTTPS の診断対象（ドメインまたは IP）と authorization.confirmed
+  auth.passive: ログイン画面を持つ診断対象 URL
+  api: API エンドポイント一覧（scope.yaml の api_endpoints）
+  vuln.version: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed
+  vuln.templates: ドメインまたは IP の診断対象と nuclei のインストール
+  deps: リポジトリ・SBOM・コンテナイメージ（scope.yaml の inputs.deps）と trivy / osv-scanner
+  logs.access: 直近 90 日分のアクセスログ（scope.yaml の inputs.access_logs）
+  logs.auth: 外部サービスの認証ログ（scope.yaml の inputs.auth_logs）
+  accounts: アカウント台帳 CSV と人事名簿（scope.yaml の inputs.accounts / roster）
+  data: データ台帳（scope.yaml の inputs.data_inventory）
+  cloud.aws: AWS の読み取り専用認証情報（scope.yaml の cloud.aws.enabled）

@@ -1,0 +1,328 @@
+{
+  "items": [
+    {
+      "ipa_item": "P1-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "discovery: 未実装の検査（質問票の回答で判定）",
+        "ports: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p1_inventory: 外部公開アプリケーションの一覧（URL、責任者、構成）を最新の状態で管理していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P1-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "logs.access: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p1_log_reviewed: 直近 1 か月、続いて 3 か月のログを確認し、エラー量や平時との差異を調べましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P1-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "logs.access: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p1_log_reviewed: 直近 1 か月、続いて 3 か月のログを確認し、エラー量や平時との差異を調べましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P1-4",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "deps: リポジトリ・SBOM・コンテナイメージ（scope.yaml の inputs.deps）と trivy / osv-scanner",
+        "vuln.version: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "vuln.templates: ドメインまたは IP の診断対象と nuclei のインストール",
+        "質問票 q_p1_patch: OS・ミドルウェア・ライブラリのパッチ適用状況を確認し、未適用分を適用しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P2-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "ports: 未実装の検査（質問票の回答で判定）",
+        "vuln.version: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "質問票 q_p2_inventory: 利用中のクラウドサービス・SaaS・VPN 機器をすべて一覧化していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P2-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "logs.auth: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p2_log_reviewed: 各外部サービスのログ（ログイン履歴、管理操作）を確認しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P2-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "accounts: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p2_accounts: 不正に作成されたアカウントや、削除済みアカウントの再有効化がないことを確認しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P3-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "data: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p3_minimize: 不要な個人情報・機密情報を特定し、削除または保有をやめましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "P3-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "data: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p3_inventory: 保有する情報資産（種類、保管場所、件数、責任者）を台帳で把握していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "ports: 未実装の検査（質問票の回答で判定）",
+        "http.exposure: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "質問票 q_a1_exposure_reviewed: 管理画面や内部向け機能が、必要な範囲（IP 制限、VPN 経由等）にだけ公開されていることを確認しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "http.cookies: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "auth.passive: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_a2_mfa: 管理者や重要機能のログインに多要素認証を導入していますか",
+        "質問票 q_a2_password: パスワードの最低長・使い回し対策・ロックアウトを設定していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "accounts: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_a3_privilege: アプリケーションの管理者権限を必要最小限の人に限定していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-4",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "api: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_a4_api: API 連携先・API キー・トークンを一覧化し、不要なものを無効化しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-5",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "logs.access: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_a5_logs: 調査に必要なログ（日時、送信元、操作者、操作内容）を、調査に足る期間（目安 1 年以上）保存していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "A-6",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "http.headers: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "http.errors: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "tls: HTTPS の診断対象（ドメインまたは IP）と authorization.confirmed",
+        "質問票 q_a6_extra: WAF、改ざん検知、脆弱性診断など追加の対策を検討・実施していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "S-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "accounts: 未実装の検査（質問票の回答で判定）",
+        "cloud.aws: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_s1_mfa: 外部サービスの管理者・利用者に多要素認証を必須にしていますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "S-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "accounts: 未実装の検査（質問票の回答で判定）",
+        "cloud.aws: 未実装の検査（質問票の回答で判定）"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "S-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "accounts: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_s3_review: アカウント棚卸しを定期的（目安 四半期）に実施し、記録を残していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "S-4",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "cloud.aws: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_s4_api: 外部サービスの API キー・連携アプリを棚卸しし、期限や権限を見直しましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "S-5",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "cloud.aws: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_a5_logs: 調査に必要なログ（日時、送信元、操作者、操作内容）を、調査に足る期間（目安 1 年以上）保存していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "D-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "data: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_p3_minimize: 不要な個人情報・機密情報を特定し、削除または保有をやめましたか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "D-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "http.exposure: 診断対象の URL・ドメイン（scope.yaml の targets）と authorization.confirmed",
+        "cloud.aws: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_d2_location: 個人情報の保管場所を、インターネットから直接到達できない場所に限定していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "D-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "質問票 q_d3_access_log: 個人情報を保管するデータベース・ストレージへのアクセスログを取得・保存していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "D-4",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "tls: HTTPS の診断対象（ドメインまたは IP）と authorization.confirmed",
+        "cloud.aws: 未実装の検査（質問票の回答で判定）",
+        "質問票 q_d4_encryption: 保管中の個人情報・機密情報を暗号化していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "M-1",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "質問票 q_m1_leadership: 経営者がサイバーセキュリティを経営課題として扱い、対策の予算・体制を承認していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "M-2",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "質問票 q_m2_supply_chain: 委託先・取引先・利用サービスを含めたセキュリティ要件の確認を行っていますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    },
+    {
+      "ipa_item": "M-3",
+      "verdict": "unverified",
+      "findings": [],
+      "missing_inputs": [
+        "質問票 q_m3_communication: インシデント発生時の連絡体制（社内、委託先、所管官庁、個人情報保護委員会等）を定め、平時から共有していますか"
+      ],
+      "rationale": "判定に必要な検査結果も質問票の回答もない",
+      "mismatch": false
+    }
+  ],
+  "score": {
+    "overall": 0.0,
+    "by_category": {
+      "inspection": 0.0,
+      "app_measure": 0.0,
+      "service_measure": 0.0,
+      "data_measure": 0.0,
+      "management": 0.0
+    },
+    "counts": {
+      "achieved": 0,
+      "partial": 0,
+      "not_achieved": 0,
+      "unverified": 27,
+      "na": 0
+    },
+    "critical": 0,
+    "high": 0
+  }
+}

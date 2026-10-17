@@ -7,12 +7,8 @@ from pathlib import Path
 
 from alertcheck.config.scope import ConfigError
 from alertcheck.infra.base import Notifier, ResultStore, SecretProvider, Workspace
-from alertcheck.infra.local import (
-    EnvSecretProvider,
-    InMemoryResultStore,
-    LocalWorkspace,
-    NullNotifier,
-)
+from alertcheck.infra.local import EnvSecretProvider, LocalWorkspace, NullNotifier
+from alertcheck.storage.sqlite import SqliteResultStore
 
 
 @dataclass
@@ -27,7 +23,7 @@ def build_infra(runtime: str, workspace_root: Path) -> Infra:
     if runtime == "local":
         return Infra(
             workspace=LocalWorkspace(workspace_root),
-            store=InMemoryResultStore(),
+            store=SqliteResultStore(Path(workspace_root) / "out" / "alertcheck.db"),
             secrets=EnvSecretProvider(),
             notifier=NullNotifier(),
         )

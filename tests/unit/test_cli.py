@@ -329,3 +329,95 @@ def test_db_update_tool_failure_exits_3(tmp_path, monkeypatch, respx_mock):
     assert result.exit_code == 3
     assert "fail  trivy" in result.output
     assert "skip  nuclei" in result.output  # not installed is not a failure
+
+
+class TestJudgedScan:
+    def test_scan_judges_and_persists(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FindingCheck())
+        result = invoke("scan", "--workspace", str(tmp_path))
+        out = result.output
+        assert "達成率" in out
+        assert "critical" in out.splitlines()[0] or "警告" in out  # critical banner first
+        run_id = next(
+            line.split()[1].rstrip(":") for line in out.splitlines() if line.startswith("Run ")
+        )
+
+        from alertcheck.storage.sqlite import SqliteResultStore
+
+        stored = SqliteResultStore(tmp_path / "out" / "alertcheck.db").get_run(run_id)
+        assert stored is not None
+        assert len(stored.items) == 27
+        assert stored.score is not None
+        a1 = next(i for i in stored.items if i.ipa_item == "A-1")
+        assert a1.verdict == "not_achieved"  # critical finding on A-1
+
+    def test_findings_json_includes_verdicts(self, tmp_path, monkeypatch):
+        import json
+
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FindingCheck())
+        invoke("scan", "--workspace", str(tmp_path))
+        data = json.loads(next((tmp_path / "out" / "runs").glob("*/findings.json")).read_text())
+        assert len(data["items"]) == 27
+        assert "overall" in data["score"]
+
+    def test_mismatch_is_shown(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        (tmp_path / "questionnaire.yaml").write_text(
+            "answers:\n  q_a1_exposure_reviewed: {value: done}\n"
+        )
+        patch_registry(monkeypatch, FindingCheck())
+        out = invoke("scan", "--workspace", str(tmp_path)).output
+        assert "食い違い" in out and "A-1" in out
+
+
+class TestRuns:
+    def test_list_and_show(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FindingCheck())
+        out = invoke("scan", "--workspace", str(tmp_path)).output
+        run_id = next(
+            line.split()[1].rstrip(":") for line in out.splitlines() if line.startswith("Run ")
+        )
+        listing = invoke("runs", "--workspace", str(tmp_path))
+        assert listing.exit_code == 0 and run_id in listing.output
+        shown = invoke("runs", run_id, "--workspace", str(tmp_path))
+        assert shown.exit_code == 0
+        assert "A-1" in shown.output and "not_achieved" in shown.output
+        assert "M-3" in shown.output
+
+    def test_unknown_run(self, tmp_path):
+        invoke("init", "--workspace", str(tmp_path))
+        result = invoke("runs", "nope", "--workspace", str(tmp_path))
+        assert result.exit_code == 3
+        assert "nope" in result.output
+
+    def test_no_runs_yet(self, tmp_path):
+        invoke("init", "--workspace", str(tmp_path))
+        result = invoke("runs", "--workspace", str(tmp_path))
+        assert result.exit_code == 0
+        assert "no runs" in result.output
+
+
+class TestQuestionnaireCommands:
+    def test_init_writes_template(self, tmp_path):
+        result = invoke("questionnaire", "init", "--workspace", str(tmp_path))
+        assert result.exit_code == 0
+        assert "q_has_public_app" in (tmp_path / "questionnaire.yaml").read_text()
+
+    def test_init_does_not_overwrite(self, tmp_path):
+        (tmp_path / "questionnaire.yaml").write_text("answers: {}\n")
+        result = invoke("questionnaire", "init", "--workspace", str(tmp_path))
+        assert result.exit_code == 0
+        assert (tmp_path / "questionnaire.yaml").read_text() == "answers: {}\n"
+
+    def test_show(self, tmp_path):
+        (tmp_path / "questionnaire.yaml").write_text("answers:\n  q_m1_leadership: {value: done}\n")
+        out = invoke("questionnaire", "show", "--workspace", str(tmp_path)).output
+        assert "q_m1_leadership" in out and "done" in out
+        assert "1/25" in out
+
+    def test_show_invalid_answers(self, tmp_path):
+        (tmp_path / "questionnaire.yaml").write_text("answers: {q_m1_leadership: {value: maybe}}\n")
+        assert invoke("questionnaire", "show", "--workspace", str(tmp_path)).exit_code == 3
