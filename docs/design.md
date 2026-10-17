@@ -211,6 +211,7 @@ limits:
   rps_per_host: 5
   concurrency: 4
   timeout_sec: 10
+  allow_private_targets: false   # 名前解決先がプライベート IP の対象を許可する（検証環境向け）
 active:
   enabled: false
   test_account: { username_env: AC_TEST_USER, password_env: AC_TEST_PASS }
@@ -311,10 +312,10 @@ class Check(Protocol):
 ネットワーク検査はすべて `ctx.http` / `ctx.resolve_targets()` を経由し、直接ソケットを開かない。外部ツールに渡す対象リストも Scope Guard が生成する。
 
 - 許可判定: `scope.targets` のドメイン（サブドメイン含む）・URL プレフィックス・IP・CIDR のいずれかに一致し、`exclude` に一致しないこと
-- 名前解決結果の検証: ドメインが許可されていても、解決先 IP がプライベートアドレスまたはスコープ外 CIDR の場合は警告し、`allow_external_ip_for_domains: true` がない限り検査しない（CDN 配下は既定で許可）
+- 名前解決結果の検証: ドメインが許可されていても、解決先がプライベート・ループバック・リンクローカル等の非グローバルアドレスなら検査しない（DNS を書き換えて内部ネットワークへ向けさせる攻撃を防ぐ）。検証環境のように意図して内部アドレスを診断する場合は `limits.allow_private_targets: true` で許可する。`targets.hosts` / `cidrs` に明示した IP は常に許可する。スコープ外 CIDR のグローバル IP（CDN・クラウド配下）は許可し、警告として記録する
 - リダイレクト: 1 ホップごとに許可判定を行い、スコープ外なら追跡を止めて info の Finding に記録する
 - `authorization.confirmed` が偽ならネットワーク検査グループ全体を `skipped_by_option` にする
-- 全リクエストを `out/requests.jsonl` に記録する（監査証跡）
+- 全リクエスト（拒否したものを含む）を `out/runs/<run_id>/requests.jsonl` に記録する（監査証跡）
 
 ### 7.3 ネットワーク検査の詳細
 
@@ -626,7 +627,7 @@ flowchart LR
 | イメージ | ECR | ローカルと同じ Dockerfile でビルドし、イメージスキャンを有効にする |
 | 送信元 IP | NAT Gateway の EIP | 対象側の WAF・IDS の許可リストへの登録と、診断記録のために固定する |
 | 通知 | ECS タスク状態変更イベント → EventBridge ルール → SNS | 終了コード（仕様書 6.8）が 1・2 のとき、または 3（実行エラー）のときに通知する |
-| ログ | CloudWatch Logs | 保持期間は 1 年。`out/requests.jsonl` 相当の監査証跡も S3 に保存する |
+| ログ | CloudWatch Logs | 保持期間は 1 年。`requests.jsonl`（監査証跡）も S3 に保存する |
 
 AWS Batch や Step Functions は、検査を対象ごとに並列実行したくなった段階で検討する。今の規模（数サイト）では ECS RunTask 単体で足りる。
 
