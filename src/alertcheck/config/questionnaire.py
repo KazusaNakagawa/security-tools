@@ -23,8 +23,9 @@ class Question(BaseModel):
     kind: Literal["status", "yes_no"] = "status"
     ipa_items: list[str] = Field(min_length=1)
     text: str
+    na_when_no: list[str] = Field(default_factory=list)
 
-    @field_validator("ipa_items")
+    @field_validator("ipa_items", "na_when_no")
     @classmethod
     def _known_items(cls, items: list[str]) -> list[str]:
         unknown = set(items) - IPA_ITEMS
@@ -72,7 +73,9 @@ def load_answers(path: Path, questions: list[Question] | None = None) -> list[An
     questions = questions or load_questions()
     by_id = {q.id: q for q in questions}
     data = read_yaml_mapping(path)
-    raw = data.get("answers") or {}
+    raw = data.get("answers")
+    if raw is None:
+        raw = {}
     if not isinstance(raw, dict):
         raise ConfigError(f"{path}: 'answers' must be a mapping of question id to answer")
 

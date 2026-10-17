@@ -72,3 +72,26 @@ def test_missing_input_hints_name_the_items(tmp_path):
     hint = next(s for s in p.sources if s.kind == "access_logs")
     assert not hint.available
     assert {"P1-2", "P1-3", "A-5"} <= set(hint.ipa_items)
+
+
+class TestYesNoSemantics:
+    def test_yes_does_not_cover_p1_1(self, tmp_path):
+        answers = [Answer(question_id="q_has_public_app", value="yes")]
+        p = plan(tmp_path, scope(authorization={"confirmed": False}), answers)
+        assert "P1-1" in p.unverified_items
+        assert p.na_items == []
+
+    def test_no_marks_a_series_not_applicable(self, tmp_path):
+        answers = [Answer(question_id="q_has_public_app", value="no")]
+        p = plan(tmp_path, scope(authorization={"confirmed": False}), answers)
+        assert p.na_items == ["A-1", "A-2", "A-3", "A-4", "A-5", "A-6"]
+        assert not set(p.na_items) & set(p.unverified_items)
+        assert "P1-1" in p.unverified_items
+
+
+def test_deps_glob_matches_repository_directories(tmp_path):
+    (tmp_path / "inputs" / "repos" / "shop").mkdir(parents=True)
+    sc = scope(inputs={"deps": [{"path": "inputs/repos/*"}]})
+    p = plan(tmp_path, sc)
+    assert p.errors == []
+    assert next(s for s in p.sources if s.kind == "deps").available

@@ -13,7 +13,7 @@ from alertcheck.config.questionnaire import load_answers, load_questions, render
 from alertcheck.config.scope import ConfigError, ScopeConfig, load_scope
 from alertcheck.config.templates import INPUT_DIRS, SCOPE_TEMPLATE
 from alertcheck.core.context import Context, RunOptions
-from alertcheck.core.models import Answer, RunResult, Severity
+from alertcheck.core.models import Answer, Coverage, RunResult, Severity
 from alertcheck.core.orchestrator import Orchestrator
 from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
@@ -58,6 +58,20 @@ def _load(workspace: Path) -> tuple[ScopeConfig, list[Answer], Infra]:
     return scope, answers, infra
 
 
+def _atomic_write(path: Path, content: str) -> None:
+    """Write via a temp file so an interrupted init never leaves a truncated file."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _has_errors(coverage: list[Coverage]) -> bool:
+    return any(c.status == "error" for c in coverage)
+
+
 @app.command()
 def init(
     workspace: WorkspaceOpt = Path("."),
@@ -74,7 +88,7 @@ def init(
         if path.exists() and not force:
             typer.echo(f"skip    {path} (exists; use --force to overwrite)")
             continue
-        path.write_text(content, encoding="utf-8")
+        _atomic_write(path, content)
         typer.echo(f"create  {path}")
     for d in INPUT_DIRS:
         (workspace / d).mkdir(parents=True, exist_ok=True)
@@ -109,15 +123,21 @@ def validate(
         typer.echo(f"  {c.status:<18} {c.check_id} {c.detail}".rstrip())
     typer.echo(f"\nUnverified IPA items ({len(plan.unverified_items)}):")
     typer.echo("  " + (", ".join(plan.unverified_items) or "none"))
+    if plan.na_items:
+        typer.echo(f"Not applicable (by questionnaire): {', '.join(plan.na_items)}")
     for w in plan.warnings:
         typer.echo(f"warning: {w}")
-    if plan.errors:
-        for e in plan.errors:
+    errors = plan.errors + [f"{c.check_id}: {c.detail}" for c in coverage if c.status == "error"]
+    if errors:
+        for e in errors:
             typer.echo(f"error: {e}", err=True)
         raise typer.Exit(EXIT_ERROR)
 
 
 def _exit_code(run: RunResult) -> int:
+    # An incomplete run cannot vouch for anything, so execution errors win.
+    if _has_errors(run.coverage):
+        return EXIT_ERROR
     worst = max((f.severity.rank for f in run.findings), default=-1)
     if worst >= Severity.critical.rank:
         return EXIT_CRITICAL
@@ -136,10 +156,15 @@ def scan(
     ] = False,
     offline: Annotated[bool, typer.Option(help="Make no outbound network requests.")] = False,
 ) -> None:
-    """Run the checks."""
+    """Run the checks.
+
+    Exit code: 0 no critical/high, 1 high, 2 critical, 3 execution error
+    (a check failed, so the result is incomplete).
+    """
     try:
         scope, answers, infra = _load(workspace)
         registry = Registry.from_entry_points()
+        registry.stages()  # surface unknown dependencies / cycles as a config error
     except (ConfigError, RegistryError) as e:
         raise _fail(str(e)) from None
     options = RunOptions(
@@ -160,6 +185,8 @@ def scan(
     for c in run.coverage:
         if c.status != "executed":
             typer.echo(f"  {c.status:<18} {c.check_id} {c.detail}".rstrip())
+    for w in ctx.guard.warnings:
+        typer.echo(f"warning: {w}")
     raise typer.Exit(_exit_code(run))
 
 

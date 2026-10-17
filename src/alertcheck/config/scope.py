@@ -20,6 +20,25 @@ class ConfigError(Exception):
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 
 
+def _normalize_domain(value: str) -> str:
+    domain = value.strip().lower().rstrip(".")
+    labels = domain.split(".")
+    if len(labels) < 2 or not all(_LABEL.match(label) for label in labels):
+        raise ValueError(f"invalid domain: {value!r}")
+    return domain
+
+
+def _check_http_url(value: str) -> str:
+    parts = urlsplit(value)
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if parts.scheme not in ("http", "https") or not parts.hostname or port == -1:
+        raise ValueError(f"URL must be http(s) with a host and a valid port: {value!r}")
+    return value
+
+
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -49,23 +68,12 @@ class Targets(_Strict):
     @field_validator("domains")
     @classmethod
     def _check_domains(cls, values: list[str]) -> list[str]:
-        out = []
-        for value in values:
-            domain = value.strip().lower().rstrip(".")
-            labels = domain.split(".")
-            if len(labels) < 2 or not all(_LABEL.match(label) for label in labels):
-                raise ValueError(f"invalid domain: {value!r}")
-            out.append(domain)
-        return out
+        return [_normalize_domain(v) for v in values]
 
     @field_validator("urls")
     @classmethod
     def _check_urls(cls, values: list[str]) -> list[str]:
-        for value in values:
-            parts = urlsplit(value)
-            if parts.scheme not in ("http", "https") or not parts.hostname:
-                raise ValueError(f"URL must be http(s) with a host: {value!r}")
-        return values
+        return [_check_http_url(v) for v in values]
 
     @field_validator("hosts")
     @classmethod
@@ -160,6 +168,29 @@ class ScopeConfig(_Strict):
     inputs: Inputs = Field(default_factory=Inputs)
     cloud: Cloud = Field(default_factory=Cloud)
 
+    @field_validator("exclude")
+    @classmethod
+    def _check_exclude(cls, values: list[str]) -> list[str]:
+        """Each entry must be an http(s) URL prefix, an IP / CIDR, or a domain.
+
+        Anything the Scope Guard cannot interpret is rejected rather than
+        silently ignored, so a typo never leaves an asset scannable.
+        """
+        for value in values:
+            if "://" in value:
+                _check_http_url(value)
+                continue
+            try:
+                ipaddress.ip_network(value, strict=False)
+                continue
+            except ValueError:
+                pass
+            # A numeric last label, ":" or "/" can only mean an IP/CIDR (no TLD is numeric).
+            if ":" in value or "/" in value or value.rstrip(".").rsplit(".", 1)[-1].isdigit():
+                raise ValueError(f"invalid IP/CIDR: {value!r}")
+            _normalize_domain(value)
+        return values
+
 
 def _format_errors(err: ValidationError) -> str:
     lines = []
@@ -170,11 +201,26 @@ def _format_errors(err: ValidationError) -> str:
     return "\n".join(lines)
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that rejects duplicate mapping keys instead of keeping the last one."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(
+                    None, None, f"duplicate key {key!r}", key_node.start_mark
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 def read_yaml_mapping(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise ConfigError(f"{path}: file not found")
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)  # noqa: S506
     except yaml.YAMLError as e:
         raise ConfigError(f"{path}: invalid YAML: {e}") from e
     if data is None:

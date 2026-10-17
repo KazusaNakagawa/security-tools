@@ -96,3 +96,20 @@ class TestFactory:
     def test_unknown_runtime(self, tmp_path):
         with pytest.raises(ConfigError, match="unknown"):
             build_infra("gcp", tmp_path)
+
+
+class TestWorkspaceHardening:
+    @pytest.mark.parametrize("run_id", ["../x", "/tmp/abs", "a/../../b", "", "a/b"])
+    def test_write_output_rejects_unsafe_run_id(self, tmp_path, run_id):
+        with pytest.raises(ValueError):
+            LocalWorkspace(tmp_path).write_output(run_id, "r.json", b"", "application/json")
+
+    def test_glob_can_include_directories(self, tmp_path):
+        (tmp_path / "inputs" / "repos" / "a").mkdir(parents=True)
+        (tmp_path / "inputs" / "repos" / "f.txt").write_text("")
+        ws = LocalWorkspace(tmp_path)
+        assert ws.glob_inputs("inputs/repos/*") == ["inputs/repos/f.txt"]
+        assert ws.glob_inputs("inputs/repos/*", include_dirs=True) == [
+            "inputs/repos/a",
+            "inputs/repos/f.txt",
+        ]

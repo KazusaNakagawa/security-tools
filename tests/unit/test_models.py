@@ -34,10 +34,15 @@ class TestFindingId:
     def test_different_kind_gives_different_id(self):
         assert _finding(kind="csp_missing").id != _finding(kind="hsts_missing").id
 
-    def test_target_normalization_ignores_case_and_trailing_slash(self):
+    def test_target_normalization_ignores_host_case_and_root_slash(self):
         a = make_finding_id("http.headers", "HTTPS://WWW.Example.co.jp/", "k")
         b = make_finding_id("http.headers", "https://www.example.co.jp", "k")
         assert a == b
+
+    def test_trailing_slash_on_non_root_path_is_significant(self):
+        a = make_finding_id("http.exposure", "https://a.example/admin", "k")
+        b = make_finding_id("http.exposure", "https://a.example/admin/", "k")
+        assert a != b
 
     def test_path_case_is_preserved(self):
         a = make_finding_id("http.exposure", "https://a.example/Admin", "k")

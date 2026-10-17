@@ -28,7 +28,8 @@ class RunOptions:
 
 
 def new_run_id() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
+    # sortable timestamp prefix + 64 random bits so concurrent runs never collide
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:16]
 
 
 @dataclass
@@ -40,6 +41,7 @@ class Context:
     run_id: str
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     _http: GuardedHttpClient | None = None
+    _http_unverified: GuardedHttpClient | None = None
 
     @classmethod
     def create(
@@ -68,19 +70,34 @@ class Context:
 
     @property
     def http(self) -> GuardedHttpClient:
-        """Scope-guarded HTTP client, created on first use."""
+        """Scope-guarded HTTP client with certificate verification, created on first use."""
         if self._http is None:
-            limits = self.scope.limits
-            self._http = GuardedHttpClient(
-                self.guard,
-                request_log=self.request_log,
-                rps=limits.rps_per_host,
-                concurrency=limits.concurrency,
-                timeout=limits.timeout_sec,
-            )
+            self._http = self._new_client(verify=True)
         return self._http
 
+    @property
+    def http_unverified(self) -> GuardedHttpClient:
+        """Client that skips certificate verification, for inspecting broken TLS only.
+
+        It refuses to send credentials; use ``http`` for anything else.
+        """
+        if self._http_unverified is None:
+            self._http_unverified = self._new_client(verify=False)
+        return self._http_unverified
+
+    def _new_client(self, *, verify: bool) -> GuardedHttpClient:
+        limits = self.scope.limits
+        return GuardedHttpClient(
+            self.guard,
+            request_log=self.request_log,
+            rps=limits.rps_per_host,
+            concurrency=limits.concurrency,
+            timeout=limits.timeout_sec,
+            verify=verify,
+        )
+
     async def aclose(self) -> None:
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
+        for client in (self._http, self._http_unverified):
+            if client is not None:
+                await client.aclose()
+        self._http = self._http_unverified = None

@@ -16,6 +16,10 @@ def _matches(check: Check, selectors: frozenset[str]) -> bool:
     return any(check.id == s or check.id.startswith(s + ".") or check.group == s for s in selectors)
 
 
+def _will_run(coverage: list[Coverage]) -> bool:
+    return any(c.status == "executed" for c in coverage)
+
+
 class Orchestrator:
     def __init__(self, registry: Registry, ctx: Context) -> None:
         self._registry = registry
@@ -28,11 +32,10 @@ class Orchestrator:
             return "not selected by --only"
         if opts.skip and _matches(check, opts.skip):
             return "excluded by --skip"
-        if check.group == "network":
-            if not self._ctx.guard.authorized:
-                return "authorization.confirmed is false"
-            if opts.offline:
-                return "--offline"
+        if check.group == "network" and not self._ctx.guard.authorized:
+            return "authorization.confirmed is false"
+        if check.group in ("network", "cloud") and opts.offline:
+            return "--offline"
         if check.active and not opts.active:
             return "active check; requires --active"
         return None
@@ -54,9 +57,20 @@ class Orchestrator:
             return self._error(check, e)
 
     def plan(self) -> list[Coverage]:
-        return [
-            cov for stage in self._registry.stages() for c in stage for cov in self._plan_check(c)
-        ]
+        """Pre-flight view; mirrors run() including dependency readiness."""
+        coverage: list[Coverage] = []
+        ready: set[str] = set()
+        for stage in self._registry.stages():
+            for check in stage:
+                missing = [d for d in check.requires if d not in ready]
+                if missing:
+                    coverage += self._skipped(check, f"dependency {missing[0]} will not run")
+                    continue
+                planned = self._plan_check(check)
+                if _will_run(planned):
+                    ready.add(check.id)
+                coverage += planned
+        return coverage
 
     async def _run_one(self, check: Check) -> CheckResult:
         try:
@@ -83,7 +97,7 @@ class Orchestrator:
                         coverage += self._skipped(check, f"dependency {missing[0]} did not run")
                         continue
                     planned = self._plan_check(check)
-                    if any(c.status == "executed" for c in planned):
+                    if _will_run(planned):
                         runnable.append(check)
                     else:
                         coverage += planned
@@ -95,7 +109,8 @@ class Orchestrator:
                     coverage += result.coverage
                     if result.artifacts:
                         self._ctx.artifacts[check.id] = result.artifacts
-                    if not any(c.status == "error" for c in result.coverage):
+                    # only a check that actually ran can satisfy its dependents
+                    if _will_run(result.coverage):
                         executed.add(check.id)
         finally:
             await self._ctx.aclose()

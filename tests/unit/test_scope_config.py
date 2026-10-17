@@ -137,3 +137,65 @@ class TestLimitsBoundary:
 def test_scope_config_is_constructible_in_code():
     scope = ScopeConfig(organization="X", authorization={"confirmed": False})
     assert scope.exclude == []
+
+
+class TestExcludeValidation:
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "https://a.example.co.jp/x/",
+            "203.0.113.5",
+            "203.0.113.0/30",
+            "2001:db8::/64",
+            "legacy.example.co.jp",
+            "1bad.cafe",
+        ],
+    )
+    def test_valid_entries(self, tmp_path, entry):
+        text = VALID.replace(
+            "exclude: [https://shop.example.co.jp/checkout/]", f'exclude: ["{entry}"]'
+        )
+        assert entry in load_scope(write(tmp_path, text)).exclude
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "https://a.example.co.jp:99999/",
+            "https://a.example.co.jp:abc/",
+            "ftp://a.example.co.jp/",
+            "203.0.113.999",
+            "203.0.113.0/33",
+            "not a host",
+        ],
+    )
+    def test_invalid_entries_are_rejected(self, tmp_path, entry):
+        text = VALID.replace(
+            "exclude: [https://shop.example.co.jp/checkout/]", f'exclude: ["{entry}"]'
+        )
+        with pytest.raises(ConfigError, match="exclude"):
+            load_scope(write(tmp_path, text))
+
+
+class TestUrlPortValidation:
+    @pytest.mark.parametrize("port", ["99999", "abc", "0x1"])
+    def test_bad_port_is_rejected(self, tmp_path, port):
+        text = VALID.replace("https://shop.example.co.jp/]", f"https://shop.example.co.jp:{port}/]")
+        with pytest.raises(ConfigError, match="targets.urls"):
+            load_scope(write(tmp_path, text))
+
+    def test_explicit_valid_port(self, tmp_path):
+        text = VALID.replace("https://shop.example.co.jp/]", "https://shop.example.co.jp:8443/]")
+        assert load_scope(write(tmp_path, text)).targets.urls == [
+            "https://shop.example.co.jp:8443/"
+        ]
+
+
+class TestDuplicateKeys:
+    def test_duplicate_top_level_key_is_rejected(self, tmp_path):
+        with pytest.raises(ConfigError, match="duplicate key 'organization'"):
+            load_scope(write(tmp_path, VALID + "organization: Other\n"))
+
+    def test_duplicate_nested_key_is_rejected(self, tmp_path):
+        text = VALID.replace("  confirmed: true\n", "  confirmed: true\n  confirmed: false\n")
+        with pytest.raises(ConfigError, match="duplicate key 'confirmed'"):
+            load_scope(write(tmp_path, text))

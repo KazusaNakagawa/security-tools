@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from alertcheck.core.models import RunResult
 from alertcheck.infra.base import SecretNotFound
+
+# one path component: no separators, not "." or "..", no leading dot
+_SAFE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
 class LocalWorkspace:
@@ -24,13 +28,14 @@ class LocalWorkspace:
     def open_input(self, path: str) -> BinaryIO:
         return self._resolve(path).open("rb")
 
-    def glob_inputs(self, pattern: str) -> list[str]:
+    def glob_inputs(self, pattern: str, *, include_dirs: bool = False) -> list[str]:
         self._resolve(pattern)  # reject patterns that point outside the workspace
         base = self.root.resolve()
         matches = []
         for match in base.glob(pattern):
             resolved = match.resolve()
-            if resolved.is_file() and resolved.is_relative_to(base):
+            wanted = resolved.is_file() or (include_dirs and resolved.is_dir())
+            if wanted and resolved.is_relative_to(base):
                 matches.append(match.relative_to(base).as_posix())
         return sorted(matches)
 
@@ -41,10 +46,12 @@ class LocalWorkspace:
             return False
 
     def run_dir(self, run_id: str) -> Path:
+        if not _SAFE_NAME.fullmatch(run_id):
+            raise ValueError(f"run id must be a plain identifier: {run_id!r}")
         return self.root / "out" / "runs" / run_id
 
     def write_output(self, run_id: str, name: str, data: bytes, content_type: str) -> str:
-        if not name or "/" in name or "\\" in name or name in (".", ".."):
+        if not _SAFE_NAME.fullmatch(name):
             raise ValueError(f"output name must be a plain file name: {name!r}")
         target = self.run_dir(run_id) / name
         target.parent.mkdir(parents=True, exist_ok=True)

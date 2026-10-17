@@ -1,9 +1,11 @@
 # alertcheck 質問票の定義（設計書 付録 A）
 # kind: status = done / partial / not_done / na, yes_no = yes / no
+# yes_no の質問は IPA 項目の根拠にはならず、na_when_no の項目を no のとき対象外にする
 questions:
   - id: q_has_public_app
     kind: yes_no
     ipa_items: [P1-1]
+    na_when_no: [A-1, A-2, A-3, A-4, A-5, A-6]
     text: 自組織で独自に構築・運用している外部公開アプリケーション・サービスはありますか（no の場合 A 系を対象外にします）
   - id: q_p1_inventory
     ipa_items: [P1-1]

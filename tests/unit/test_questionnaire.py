@@ -79,3 +79,31 @@ class TestLoadAnswers:
     def test_answers_must_be_mapping(self, tmp_path):
         with pytest.raises(ConfigError, match="answers"):
             load_answers(write(tmp_path, {"answers": ["q_a2_mfa"]}))
+
+
+class TestAnswersTypeStrictness:
+    @pytest.mark.parametrize("value", ["[]", "false", "0", "''"])
+    def test_falsey_non_mapping_answers_are_rejected(self, tmp_path, value):
+        p = tmp_path / "questionnaire.yaml"
+        p.write_text(f"answers: {value}\n", encoding="utf-8")
+        with pytest.raises(ConfigError, match="answers"):
+            load_answers(p)
+
+    def test_null_answers_means_no_answers(self, tmp_path):
+        p = tmp_path / "questionnaire.yaml"
+        p.write_text("answers:\n", encoding="utf-8")
+        assert load_answers(p) == []
+
+    def test_duplicate_question_is_rejected(self, tmp_path):
+        p = tmp_path / "questionnaire.yaml"
+        p.write_text(
+            "answers:\n  q_a2_mfa: {value: done}\n  q_a2_mfa: {value: not_done}\n", encoding="utf-8"
+        )
+        with pytest.raises(ConfigError, match="duplicate key 'q_a2_mfa'"):
+            load_answers(p)
+
+
+def test_public_app_question_declares_na_items():
+    q = next(q for q in load_questions() if q.id == "q_has_public_app")
+    assert q.kind == "yes_no"
+    assert q.na_when_no == ["A-1", "A-2", "A-3", "A-4", "A-5", "A-6"]

@@ -99,3 +99,78 @@ class TestStubs:
             result = invoke(*args)
             assert result.exit_code == 3, args
             assert "not implemented" in result.output
+
+
+class FailingCheck:
+    id, group, requires, active, ipa_items = "boom", "files", [], False, ["A-1"]
+
+    def plan(self, ctx):
+        from alertcheck.core.models import Coverage
+
+        return [Coverage(check_id=self.id, target="*", status="executed")]
+
+    async def run(self, ctx):
+        raise RuntimeError("kaboom")
+
+
+class CyclicA:
+    id, group, requires, active, ipa_items = "a", "files", ["b"], False, ["A-1"]
+
+
+class CyclicB:
+    id, group, requires, active, ipa_items = "b", "files", ["a"], False, ["A-1"]
+
+
+def patch_registry(monkeypatch, *checks):
+    from alertcheck.core.registry import Registry
+
+    def factory(cls=None):
+        reg = Registry()
+        for c in checks:
+            reg.register(c)
+        return reg
+
+    monkeypatch.setattr("alertcheck.cli.Registry.from_entry_points", staticmethod(factory))
+
+
+class TestExecutionErrors:
+    def test_scan_exits_3_when_a_check_errors(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FailingCheck())
+        result = invoke("scan", "--workspace", str(tmp_path))
+        assert result.exit_code == 3
+        assert "kaboom" in result.output
+
+    def test_scan_exits_3_on_dependency_cycle(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, CyclicA(), CyclicB())
+        result = invoke("scan", "--workspace", str(tmp_path))
+        assert result.exit_code == 3
+        assert "cycle" in result.output
+
+    def test_validate_exits_3_when_a_plan_errors(self, tmp_path, monkeypatch):
+        class BrokenPlan(FailingCheck):
+            def plan(self, ctx):
+                raise ValueError("bad plan")
+
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, BrokenPlan())
+        result = invoke("validate", "--workspace", str(tmp_path))
+        assert result.exit_code == 3
+        assert "bad plan" in result.output
+
+
+def test_init_writes_atomically(tmp_path, monkeypatch):
+    import os
+
+    calls = []
+    real_replace = os.replace
+
+    def spy(src, dst):
+        calls.append((str(src), str(dst)))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("alertcheck.cli.os.replace", spy)
+    invoke("init", "--workspace", str(tmp_path))
+    assert {os.path.basename(d) for _, d in calls} == {"scope.yaml", "questionnaire.yaml"}
+    assert not list(tmp_path.glob("*.tmp"))

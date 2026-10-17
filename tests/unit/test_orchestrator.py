@@ -174,3 +174,39 @@ async def test_plan_failure_is_isolated(tmp_path):
     s = statuses(await Orchestrator(reg, ctx(tmp_path)).run())
     assert s["a"][0] == "error" and "bad input" in s["a"][1]
     assert s["b"][0] == "executed"
+
+
+async def test_offline_skips_cloud_checks(tmp_path):
+    reg = registry(Check("cloud.aws", group="cloud"))
+    s = statuses(await Orchestrator(reg, ctx(tmp_path, offline=True)).run())
+    assert s["cloud.aws"] == ("skipped_by_option", "--offline")
+
+
+class SkippedRun(Check):
+    async def run(self, ctx):
+        return CheckResult(
+            coverage=[Coverage(check_id=self.id, target="*", status="skipped_no_input")]
+        )
+
+
+async def test_dependency_that_reports_skipped_does_not_count_as_executed(tmp_path):
+    reg = registry(SkippedRun("a"), Check("b", requires=["a"]))
+    s = statuses(await Orchestrator(reg, ctx(tmp_path)).run())
+    assert s["b"] == ("skipped_by_option", "dependency a did not run")
+
+
+def test_plan_marks_dependents_of_skipped_checks(tmp_path):
+    reg = registry(
+        Check("a", group="files", plan_status="skipped_no_input"),
+        Check("b", group="files", requires=["a"]),
+        Check("c", group="files", requires=["b"]),
+    )
+    plan = {c.check_id: (c.status, c.detail) for c in Orchestrator(reg, ctx(tmp_path)).plan()}
+    assert plan["b"] == ("skipped_by_option", "dependency a will not run")
+    assert plan["c"] == ("skipped_by_option", "dependency b will not run")
+
+
+def test_plan_marks_dependents_of_failing_plan(tmp_path):
+    reg = registry(BrokenPlan("a", group="files"), Check("b", group="files", requires=["a"]))
+    plan = {c.check_id: c.status for c in Orchestrator(reg, ctx(tmp_path)).plan()}
+    assert plan == {"a": "error", "b": "skipped_by_option"}

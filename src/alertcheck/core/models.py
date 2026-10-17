@@ -43,12 +43,16 @@ _SEVERITY_RANK = {
 
 
 def _normalize_target(target: str) -> str:
-    """Lower-case scheme and host and drop a trailing slash; keep path case."""
+    """Lower-case scheme and host and treat an empty path as "/".
+
+    Path case and a trailing slash on non-root paths are kept, since
+    ``/admin`` and ``/admin/`` can be different resources.
+    """
     target = target.strip()
     if "://" not in target:
-        return target.lower().rstrip("/")
+        return target.lower()
     parts = urlsplit(target)
-    path = parts.path.rstrip("/")
+    path = parts.path or "/"
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, parts.query, ""))
 
 

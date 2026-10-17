@@ -41,18 +41,20 @@ class Plan:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unverified_items: list[str] = field(default_factory=list)
+    na_items: list[str] = field(default_factory=list)
 
 
-def _check_paths(ws: Workspace, paths: list[str], errors: list[str]) -> int:
+def _check_paths(
+    ws: Workspace, paths: list[str], errors: list[str], *, include_dirs: bool = False
+) -> int:
     """Return how many configured paths matched; record missing ones as errors."""
     found = 0
     for path in paths:
         try:
-            matched = (
-                ws.glob_inputs(path)
-                if any(ch in path for ch in "*?[")
-                else ([path] if ws.exists(path) else [])
-            )
+            if any(ch in path for ch in "*?["):
+                matched = ws.glob_inputs(path, include_dirs=include_dirs)
+            else:
+                matched = [path] if ws.exists(path) else []
         except PermissionError:
             errors.append(f"input path escapes the workspace: {path}")
             continue
@@ -95,7 +97,7 @@ def build_plan(
         "data_inventory": [inputs.data_inventory] if inputs.data_inventory else [],
     }
     for kind, paths in file_inputs.items():
-        found = _check_paths(ws, paths, plan.errors)
+        found = _check_paths(ws, paths, plan.errors, include_dirs=kind == "deps")
         if kind == "deps":
             found += sum(1 for d in inputs.deps if d.image)
         detail = f"{found} input(s)" if found else "not provided"
@@ -110,10 +112,21 @@ def build_plan(
         Source("cloud_aws", aws, SOURCE_ITEMS["cloud_aws"], "enabled" if aws else "disabled")
     )
 
-    answered = {a.question_id for a in answers if a.value is not None}
+    values = {a.question_id: a.value for a in answers if a.value is not None}
+    answered = set(values)
     covered = {i for s in plan.sources if s.available for i in s.ipa_items}
-    covered |= {i for q in questions if q.id in answered for i in q.ipa_items}
-    plan.unverified_items = sorted(IPA_ITEMS - covered, key=_item_order)
+    # yes/no questions decide applicability; they are not evidence for an item
+    covered |= {
+        i for q in questions if q.id in answered and q.kind == "status" for i in q.ipa_items
+    }
+    na = {
+        i
+        for q in questions
+        if q.kind == "yes_no" and values.get(q.id) == "no"
+        for i in q.na_when_no
+    }
+    plan.na_items = sorted(na, key=_item_order)
+    plan.unverified_items = sorted(IPA_ITEMS - covered - na, key=_item_order)
     unanswered = [q.id for q in questions if q.id not in answered]
     if unanswered:
         plan.warnings.append(f"{len(unanswered)} of {len(questions)} questions are unanswered")
