@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, BinaryIO, Protocol
 
 from alertcheck.core.models import RunResult
@@ -17,6 +18,10 @@ class Workspace(Protocol):
     def open_input(self, path: str) -> BinaryIO: ...
     def glob_inputs(self, pattern: str, *, include_dirs: bool = False) -> list[str]: ...
     def exists(self, path: str) -> bool: ...
+    def local_path(self, path: str) -> Path:
+        """Filesystem path for handing an input to an external tool."""
+        ...
+
     def write_output(self, run_id: str, name: str, data: bytes, content_type: str) -> str: ...
 
 

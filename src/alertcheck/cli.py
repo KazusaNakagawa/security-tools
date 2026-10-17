@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 
+from alertcheck.adapters.process import ToolFailed, ToolNotFound, run_tool
 from alertcheck.config.questionnaire import load_answers, load_questions, render_answers_template
 from alertcheck.config.scope import ConfigError, ScopeConfig, load_scope
 from alertcheck.config.templates import INPUT_DIRS, SCOPE_TEMPLATE
@@ -19,6 +22,7 @@ from alertcheck.core.orchestrator import Orchestrator
 from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
 from alertcheck.infra.factory import Infra, build_infra
+from alertcheck.vulndb import cache_dir, update_eol, update_kev
 
 EXIT_OK, EXIT_HIGH, EXIT_CRITICAL, EXIT_ERROR = 0, 1, 2, 3
 
@@ -242,8 +246,50 @@ def serve() -> None:
 
 @db_app.command("update")
 def db_update() -> None:
-    """Update vulnerability databases and Nuclei templates."""
-    raise _not_implemented("db update", "issue #4")
+    """Refresh CISA KEV, endoflife.date data and installed scanners' databases."""
+    ok = asyncio.run(_db_update(cache_dir()))
+    if not ok:
+        raise typer.Exit(EXIT_ERROR)
+
+
+_TOOL_UPDATES = [
+    ["trivy", "image", "--download-db-only", "--quiet"],
+    # downloads osv-scanner's local databases used by --offline; scanning an empty dir is enough
+    [
+        "osv-scanner",
+        "scan",
+        "source",
+        "--offline-vulnerabilities",
+        "--download-offline-databases",
+        "--recursive",
+    ],
+    ["nuclei", "-update-templates", "-silent", "-disable-update-check"],
+]
+
+
+async def _db_update(cache: Path) -> bool:
+    typer.echo(f"Cache: {cache}")
+    ok = True
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        for name, update in (("kev", update_kev), ("eol", update_eol)):
+            try:
+                count = await update(client, cache)
+                typer.echo(f"  ok    {name:<12} {count} entries")
+            except (httpx.HTTPError, ValueError) as e:
+                ok = False
+                typer.echo(f"  fail  {name:<12} {e}")
+    with tempfile.TemporaryDirectory() as empty:
+        for argv in _TOOL_UPDATES:
+            full = [*argv, empty] if argv[0] == "osv-scanner" else argv
+            try:
+                await run_tool(full, timeout=1800, ok_codes=(0, 1, 128))
+                typer.echo(f"  ok    {argv[0]}")
+            except ToolNotFound:
+                typer.echo(f"  skip  {argv[0]:<12} not installed")
+            except ToolFailed as e:
+                ok = False  # an installed scanner left with stale data is a failure
+                typer.echo(f"  fail  {argv[0]:<12} {e}")
+    return ok
 
 
 @questionnaire_app.command("init")

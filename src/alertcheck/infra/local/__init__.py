@@ -39,6 +39,9 @@ class LocalWorkspace:
                 matches.append(match.relative_to(base).as_posix())
         return sorted(matches)
 
+    def local_path(self, path: str) -> Path:
+        return self._resolve(path)
+
     def exists(self, path: str) -> bool:
         try:
             return self._resolve(path).exists()

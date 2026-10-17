@@ -1,0 +1,5 @@
+{
+  "packages": [{"name": "facade/ignition", "version": "2.5.1"}],
+  "platform": {"php": "^7.4"},
+  "platform-dev": []
+}
