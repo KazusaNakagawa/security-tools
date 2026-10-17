@@ -408,7 +408,7 @@ ec2_securitygroup_allow_ingress_from_internet_to_tcp_port_3389: [A-1]
 
 ### 8.1 IPA 項目定義
 
-`judge/ipa_items.yaml` に、各項目の判定に必要な Coverage と関連する質問を宣言する。
+`judge/ipa_items.yaml` に、各項目の判定に必要な Coverage と関連する質問、未実行の検査を「何を用意すれば判定できるか」に言い換えるヒント（`input_hints`）を宣言する。対象外の条件は質問票側（`q_has_public_app` の `na_when_no`）に一本化し、`validate` の実行計画と判定エンジンで共有する。判定エンジンには登録済みの検査の一覧も渡し、「未実装の検査」と「入力不足で実行されなかった検査」を区別して不足入力に示す。
 
 ```yaml
 P1-2:
@@ -473,6 +473,8 @@ CREATE TABLE triage (                       -- 第 2 段階: 対応状況
   finding_id TEXT PRIMARY KEY, state TEXT, assignee TEXT, note TEXT, updated_at TEXT
 );
 ```
+
+実装では、`runs.score_json`（採点結果）、`items.findings_json` と `items.mismatch`（回答と検査結果の食い違い）、`coverage.seq`（記録順）を追加した。保存先はローカルでは `out/alertcheck.db`。`alertcheck runs` で一覧、`alertcheck runs <RUN_ID>` で項目別の判定を表示する。
 
 前回差分は直前の run と `findings.id` で突合し、新規 / 解消 / 継続に分類する。
 

@@ -122,6 +122,20 @@ class ItemResult(BaseModel):
     findings: list[str] = Field(default_factory=list)
     missing_inputs: list[str] = Field(default_factory=list)
     rationale: str = ""
+    # the questionnaire says "done" but the scan found high/critical issues
+    mismatch: bool = False
+
+
+class Score(BaseModel):
+    overall: float | None  # None when every item is n/a
+    by_category: dict[str, float | None]
+    counts: dict[str, int]
+    critical: int
+    high: int
+
+
+def ipa_sort_key(item: str) -> tuple[int, str]:
+    return ("PASDM".index(item[0]), item)
 
 
 class CheckResult(BaseModel):
@@ -140,3 +154,4 @@ class RunResult(BaseModel):
     coverage: list[Coverage] = Field(default_factory=list)
     answers: list[Answer] = Field(default_factory=list)
     items: list[ItemResult] = Field(default_factory=list)
+    score: Score | None = None
