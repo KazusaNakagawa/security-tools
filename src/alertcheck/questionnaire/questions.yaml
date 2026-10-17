@@ -1,0 +1,81 @@
+# alertcheck 質問票の定義（設計書 付録 A）
+# kind: status = done / partial / not_done / na, yes_no = yes / no
+# yes_no の質問は IPA 項目の根拠にはならず、na_when_no の項目を no のとき対象外にする
+questions:
+  - id: q_has_public_app
+    kind: yes_no
+    ipa_items: [P1-1]
+    na_when_no: [A-1, A-2, A-3, A-4, A-5, A-6]
+    text: 自組織で独自に構築・運用している外部公開アプリケーション・サービスはありますか（no の場合 A 系を対象外にします）
+  - id: q_p1_inventory
+    ipa_items: [P1-1]
+    text: 外部公開アプリケーションの一覧（URL、責任者、構成）を最新の状態で管理していますか
+  - id: q_p1_log_reviewed
+    ipa_items: [P1-2, P1-3]
+    text: 直近 1 か月、続いて 3 か月のログを確認し、エラー量や平時との差異を調べましたか
+  - id: q_p1_patch
+    ipa_items: [P1-4]
+    text: OS・ミドルウェア・ライブラリのパッチ適用状況を確認し、未適用分を適用しましたか
+  - id: q_p2_inventory
+    ipa_items: [P2-1]
+    text: 利用中のクラウドサービス・SaaS・VPN 機器をすべて一覧化していますか
+  - id: q_p2_log_reviewed
+    ipa_items: [P2-2]
+    text: 各外部サービスのログ（ログイン履歴、管理操作）を確認しましたか
+  - id: q_p2_accounts
+    ipa_items: [P2-3]
+    text: 不正に作成されたアカウントや、削除済みアカウントの再有効化がないことを確認しましたか
+  - id: q_p3_minimize
+    ipa_items: [P3-1, D-1]
+    text: 不要な個人情報・機密情報を特定し、削除または保有をやめましたか
+  - id: q_p3_inventory
+    ipa_items: [P3-2]
+    text: 保有する情報資産（種類、保管場所、件数、責任者）を台帳で把握していますか
+  - id: q_a1_exposure_reviewed
+    ipa_items: [A-1]
+    text: 管理画面や内部向け機能が、必要な範囲（IP 制限、VPN 経由等）にだけ公開されていることを確認しましたか
+  - id: q_a2_mfa
+    ipa_items: [A-2]
+    text: 管理者や重要機能のログインに多要素認証を導入していますか
+  - id: q_a2_password
+    ipa_items: [A-2]
+    text: パスワードの最低長・使い回し対策・ロックアウトを設定していますか
+  - id: q_a3_privilege
+    ipa_items: [A-3]
+    text: アプリケーションの管理者権限を必要最小限の人に限定していますか
+  - id: q_a4_api
+    ipa_items: [A-4]
+    text: API 連携先・API キー・トークンを一覧化し、不要なものを無効化しましたか
+  - id: q_a5_logs
+    ipa_items: [A-5, S-5]
+    text: 調査に必要なログ（日時、送信元、操作者、操作内容）を、調査に足る期間（目安 1 年以上）保存していますか
+  - id: q_a6_extra
+    ipa_items: [A-6]
+    text: WAF、改ざん検知、脆弱性診断など追加の対策を検討・実施していますか
+  - id: q_s1_mfa
+    ipa_items: [S-1]
+    text: 外部サービスの管理者・利用者に多要素認証を必須にしていますか
+  - id: q_s3_review
+    ipa_items: [S-3]
+    text: アカウント棚卸しを定期的（目安 四半期）に実施し、記録を残していますか
+  - id: q_s4_api
+    ipa_items: [S-4]
+    text: 外部サービスの API キー・連携アプリを棚卸しし、期限や権限を見直しましたか
+  - id: q_d2_location
+    ipa_items: [D-2]
+    text: 個人情報の保管場所を、インターネットから直接到達できない場所に限定していますか
+  - id: q_d3_access_log
+    ipa_items: [D-3]
+    text: 個人情報を保管するデータベース・ストレージへのアクセスログを取得・保存していますか
+  - id: q_d4_encryption
+    ipa_items: [D-4]
+    text: 保管中の個人情報・機密情報を暗号化していますか
+  - id: q_m1_leadership
+    ipa_items: [M-1]
+    text: 経営者がサイバーセキュリティを経営課題として扱い、対策の予算・体制を承認していますか
+  - id: q_m2_supply_chain
+    ipa_items: [M-2]
+    text: 委託先・取引先・利用サービスを含めたセキュリティ要件の確認を行っていますか
+  - id: q_m3_communication
+    ipa_items: [M-3]
+    text: インシデント発生時の連絡体制（社内、委託先、所管官庁、個人情報保護委員会等）を定め、平時から共有していますか
