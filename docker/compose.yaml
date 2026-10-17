@@ -1,0 +1,27 @@
+# Usage (from the repository root):
+#   docker compose -f docker/compose.yaml run --rm alertcheck init
+#   docker compose -f docker/compose.yaml run --rm alertcheck db update
+#   docker compose -f docker/compose.yaml run --rm alertcheck scan
+#   docker compose -f docker/compose.yaml run --rm alertcheck report
+# File-only checks without any network access:
+#   docker compose -f docker/compose.yaml run --rm --network none alertcheck scan --offline
+services:
+  alertcheck:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: alertcheck:local
+    volumes:
+      - ${ALERTCHECK_WORKSPACE:-../workspace}:/workspace
+      - alertcheck-home:/home/scanner   # vulnerability DBs, KEV/EOL data, nuclei templates
+    environment:
+      - AWS_PROFILE   # optional; credentials are never written to files
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  alertcheck-home:

@@ -142,7 +142,7 @@ WORKDIR /workspace
 ENTRYPOINT ["alertcheck"]
 ```
 
-タグは実装時に検証済みの具体的なバージョンへ固定し、Renovate 等で更新する。
+タグは実装時に検証済みの具体的なバージョンへ固定し、Renovate 等で更新する。実装では trivy 0.76.0、osv-scanner v2.7.0、nuclei v3.4.10、uv 0.10.12 に固定し、依存は uv で lockfile どおりに入れる。各ツールのキャッシュ（trivy DB、osv-scanner のオフライン DB、nuclei テンプレート、KEV / EOL データ）はすべて `/home/scanner` に置き、compose ではそこをボリュームにすることでルートファイルシステムを読み取り専用にしている。
 
 ### 4.2 compose
 
@@ -532,7 +532,7 @@ JSON Schema を `report/schema.json` に置き、CI でスキーマ互換性を�
 |---|---|
 | 単体 | パーサ（各ログ形式・CSV マッピング）、異常検知の閾値、アカウントルール、判定アルゴリズム、マスキング、Scope Guard の許可判定（サブドメイン、CIDR、リダイレクト） |
 | 外部ツール連携 | nmap / nuclei / trivy / osv の JSON 出力サンプルを fixtures に置き、パース結果をスナップショットテスト |
-| E2E | `tests/e2e/compose.yaml` に、わざと不備を入れた対象（`.env` 公開、CSP なし、スタックトレース露出、Swagger 公開、Redis ポート公開の nginx + Express）を用意し、`alertcheck scan` が期待した Finding と判定を返すことを確認する。対象はローカルの Docker ネットワーク内に閉じる |
+| E2E | `tests/e2e/compose.yaml` に、わざと不備を入れた対象（`.env` 公開、CSP なし、バージョン表示、スタックトレース露出、Swagger 公開、Redis ポート公開の nginx + Node）を用意し、Docker イメージの `alertcheck scan` が期待した Finding と判定を返すことを確認する。対象は `internal: true` の Docker ネットワーク内に閉じ、ホストへのポート公開もしない。Swagger と Redis の検出は `api` / `ports` 検査（#3）の実装までは xfail とする |
 | 回帰 | 判定結果の JSON をゴールデンファイルとして保存し、ルール変更時の差分をレビューする |
 
 ## 13. 実装順序（MVP）

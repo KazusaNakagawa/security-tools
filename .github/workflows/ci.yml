@@ -20,3 +20,17 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
       - run: uv run pytest -q
+
+  e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked
+      - name: Build image and scan the misconfigured target
+        env:
+          ALERTCHECK_E2E: "1"
+        run: uv run pytest tests/e2e -q -rxs

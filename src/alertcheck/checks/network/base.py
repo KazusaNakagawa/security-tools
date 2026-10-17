@@ -133,6 +133,10 @@ class InspectResult:
 _MAX_FAILED_RATIO = 0.1
 
 
+class NoWebService(Exception):
+    """Neither HTTPS nor HTTP accepted a connection on a host-derived target."""
+
+
 class HttpCheck:
     """Runs ``inspect`` once per HTTP target with per-target error isolation."""
 
@@ -175,7 +179,10 @@ class HttpCheck:
             if not target.http_fallback:
                 raise
         plain = HttpTarget("http://" + target.url.removeprefix("https://"))
-        return plain, await fetch(ctx, plain.url)
+        try:
+            return plain, await fetch(ctx, plain.url)
+        except httpx.ConnectError as e:
+            raise NoWebService(str(e)) from e
 
     async def _run_target(
         self, ctx: Context, target: HttpTarget
@@ -185,6 +192,13 @@ class HttpCheck:
             effective, response = await self._base_response(ctx, target)
             result = await self.inspect(ctx, effective, response)
             artifacts = self.artifacts(effective, response)
+        except NoWebService:
+            # a host listed by IP/domain need not run a web server (e.g. a database host)
+            detail = "no HTTP service on host (connection refused on https and http)"
+            skipped = Coverage(
+                check_id=self.id, target=target.url, status="skipped_no_input", detail=detail
+            )
+            return [], skipped, {}
         except (ScopeViolation, httpx.HTTPError) as e:
             detail = f"{type(e).__name__}: {e}"
             return (
