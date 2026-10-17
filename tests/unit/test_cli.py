@@ -312,3 +312,20 @@ class TestDbUpdate:
         result = invoke("db", "update")
         assert result.exit_code == 3
         assert "kev" in result.output and "fail" in result.output
+
+
+def test_db_update_tool_failure_exits_3(tmp_path, monkeypatch, respx_mock):
+    from alertcheck.adapters.process import ToolFailed, ToolNotFound
+
+    async def tools(argv, *, timeout, ok_codes=(0,)):
+        if argv[0] == "trivy":
+            raise ToolFailed("trivy exited 1: network unreachable")
+        raise ToolNotFound(f"{argv[0]} not installed")
+
+    monkeypatch.setenv("ALERTCHECK_CACHE", str(tmp_path))
+    monkeypatch.setattr("alertcheck.cli.run_tool", tools)
+    TestDbUpdate()._mock_feeds(respx_mock)
+    result = invoke("db", "update")
+    assert result.exit_code == 3
+    assert "fail  trivy" in result.output
+    assert "skip  nuclei" in result.output  # not installed is not a failure

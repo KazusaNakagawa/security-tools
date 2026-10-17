@@ -287,6 +287,7 @@ async def _db_update(cache: Path) -> bool:
             except ToolNotFound:
                 typer.echo(f"  skip  {argv[0]:<12} not installed")
             except ToolFailed as e:
+                ok = False  # an installed scanner left with stale data is a failure
                 typer.echo(f"  fail  {argv[0]:<12} {e}")
     return ok
 

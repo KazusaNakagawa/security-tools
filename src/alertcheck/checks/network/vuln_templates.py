@@ -87,7 +87,7 @@ class VulnTemplatesCheck:
         with tempfile.TemporaryDirectory() as tmp:
             list_file = Path(tmp) / "targets.txt"
             list_file.write_text("\n".join(validated) + "\n", encoding="utf-8")
-            ctx.audit({"event": "nuclei", "targets": validated})
+            ctx.audit({"event": "nuclei", "targets": [redact_url(u) for u in validated]})
             argv = nuclei.args(
                 str(list_file),
                 rps=limits.rps_per_host,

@@ -112,3 +112,15 @@ async def test_no_targets(make_ctx, cache):
         make_ctx, cache, runner, targets={"urls": ["http://x.invalid/"], "domains": []}
     )
     assert plan[0].status in ("skipped_by_option", "skipped_no_input")
+
+
+async def test_audit_log_redacts_secrets_in_target_urls(make_ctx, cache):
+    targets = {
+        "domains": ["www.example.co.jp"],
+        "urls": ["https://www.example.co.jp/app/?token=s3cr3t&page=1"],
+    }
+    ctx, _, _ = await run(make_ctx, cache, FakeRunner(""), targets=targets)
+    log = ctx.request_log.read_text()
+    assert "s3cr3t" not in log
+    event = next(json.loads(line) for line in log.splitlines() if '"nuclei"' in line)
+    assert any("page=1" in t for t in event["targets"])
