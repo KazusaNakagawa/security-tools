@@ -199,3 +199,10 @@ class TestDuplicateKeys:
         text = VALID.replace("  confirmed: true\n", "  confirmed: true\n  confirmed: false\n")
         with pytest.raises(ConfigError, match="duplicate key 'confirmed'"):
             load_scope(write(tmp_path, text))
+
+
+class TestUserinfoRejected:
+    def test_target_url_with_credentials_is_rejected(self, tmp_path):
+        text = VALID.replace("https://shop.example.co.jp/]", "https://u:p@shop.example.co.jp/]")
+        with pytest.raises(ConfigError, match="credentials"):
+            load_scope(write(tmp_path, text))

@@ -1,0 +1,251 @@
+# http.exposure の検査対象パス（設計書 7.3）
+# path は対象 URL からの相対パス（先頭に / を付けない）。
+# category ごとに重大度・IPA 項目・HTML の扱いを決める（http_exposure.py の CATEGORIES）。
+# match は内容の検証ルール。1 つ以上を指定し、すべて満たしたときだけ検出とする。
+#   any: [..]      本文にいずれかの文字列を含む
+#   regex: ".."    本文が正規表現に一致する（複数行・大文字小文字を区別しない）
+#   magic: [..]    本文の先頭が 16 進で指定したバイト列のいずれかで始まる
+#   env: true      dotenv 形式（KEY=VALUE の行が中心）
+#   json_keys: [..] JSON オブジェクトで、いずれかのキーを持つ
+#   login_form: true  パスワード入力欄を持つ HTML（401 + WWW-Authenticate も検出）
+# severity を書くとカテゴリの既定値を上書きする。
+
+# --- バージョン管理のメタデータ ---
+- {path: .git/HEAD, category: vcs, match: {regex: '\A\s*(ref: refs/|[0-9a-f]{40}\s*\Z)'}}
+- {path: .git/config, category: vcs, match: {any: ["[core]"]}}
+- {path: .git/index, category: vcs, match: {magic: ["44495243"]}}
+- {path: .git/logs/HEAD, category: vcs, match: {regex: '^[0-9a-f]{40} [0-9a-f]{40} '}}
+- {path: .gitignore, category: manifest, severity: info, match: {regex: '^[\w.*/!#-]'}}
+- {path: .svn/entries, category: vcs, match: {regex: '\A(\d+\s*$|<\?xml)'}}
+- {path: .svn/wc.db, category: vcs, match: {magic: ["53514c69746520666f726d6174203300"]}}
+- {path: .hg/hgrc, category: vcs, match: {any: ["[paths]", "[ui]"]}}
+- {path: .bzr/README, category: vcs, match: {any: ["Bazaar"]}}
+- {path: CVS/Root, category: vcs, match: {regex: '^:(pserver|ext):'}}
+
+# --- 秘密情報を含む設定ファイル ---
+- {path: .env, category: secret_file, match: {env: true}}
+- {path: .env.local, category: secret_file, match: {env: true}}
+- {path: .env.production, category: secret_file, match: {env: true}}
+- {path: .env.prod, category: secret_file, match: {env: true}}
+- {path: .env.development, category: secret_file, match: {env: true}}
+- {path: .env.dev, category: secret_file, match: {env: true}}
+- {path: .env.staging, category: secret_file, match: {env: true}}
+- {path: .env.backup, category: secret_file, match: {env: true}}
+- {path: .env.bak, category: secret_file, match: {env: true}}
+- {path: .env.old, category: secret_file, match: {env: true}}
+- {path: .env.save, category: secret_file, match: {env: true}}
+- {path: api/.env, category: secret_file, match: {env: true}}
+- {path: backend/.env, category: secret_file, match: {env: true}}
+- {path: app/.env, category: secret_file, match: {env: true}}
+- {path: config/.env, category: secret_file, match: {env: true}}
+- {path: .aws/credentials, category: secret_file, match: {any: ["aws_access_key_id"]}}
+- {path: .npmrc, category: secret_file, match: {any: ["_authToken", "_auth="]}}
+- {path: .docker/config.json, category: secret_file, match: {json_keys: ["auths"]}}
+- {path: .htpasswd, category: secret_file, match: {regex: '^[^:\s]+:(\$apr1\$|\$2[aby]\$|\{SHA\}|\$[156]\$)'}}
+- {path: .ssh/id_rsa, category: secret_file, match: {any: ["PRIVATE KEY-----"]}}
+- {path: id_rsa, category: secret_file, match: {any: ["PRIVATE KEY-----"]}}
+- {path: server.key, category: secret_file, match: {any: ["PRIVATE KEY-----"]}}
+- {path: private.key, category: secret_file, match: {any: ["PRIVATE KEY-----"]}}
+- {path: credentials.json, category: secret_file, match: {json_keys: ["private_key", "client_secret", "installed", "web"]}}
+- {path: service-account.json, category: secret_file, match: {json_keys: ["private_key"]}}
+- {path: config/database.yml, category: secret_file, match: {regex: '^\s*password\s*:'}}
+- {path: config/secrets.yml, category: secret_file, match: {regex: '^\s*secret_key_base\s*:'}}
+- {path: config/master.key, category: secret_file, match: {regex: '\A[0-9a-f]{32}\s*\Z'}}
+- {path: application.properties, category: secret_file, match: {regex: '^\s*(spring\.datasource\.password|[\w.]*password)\s*='}}
+- {path: application.yml, category: secret_file, match: {regex: '^\s*password\s*:'}}
+- {path: appsettings.json, category: secret_file, match: {json_keys: ["ConnectionStrings"]}}
+- {path: appsettings.Production.json, category: secret_file, match: {json_keys: ["ConnectionStrings"]}}
+- {path: web.config, category: secret_file, severity: high, match: {any: ["<configuration"]}}
+- {path: config.json, category: secret_file, severity: high, match: {regex: '"(password|secret|api_?key|token)"\s*:'}}
+- {path: config.yml, category: secret_file, severity: high, match: {regex: '^\s*(password|secret|api_?key|token)\s*:'}}
+- {path: settings.py, category: secret_file, match: {any: ["SECRET_KEY"]}}
+- {path: local_settings.py, category: secret_file, match: {any: ["SECRET_KEY", "DATABASES"]}}
+- {path: wp-config.php.bak, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: wp-config.php~, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: wp-config.php.old, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: wp-config.php.save, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: wp-config.php.orig, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: wp-config.txt, category: secret_file, match: {any: ["DB_PASSWORD"]}}
+- {path: .wp-config.php.swp, category: secret_file, match: {magic: ["623056494d"]}}
+- {path: config.php.bak, category: secret_file, match: {any: ["<?php"]}}
+- {path: config.inc.php.bak, category: secret_file, match: {any: ["<?php"]}}
+- {path: configuration.php.bak, category: secret_file, match: {any: ["<?php"]}}
+- {path: database.php.bak, category: secret_file, match: {any: ["<?php"]}}
+- {path: config/database.php.bak, category: secret_file, match: {any: ["<?php"]}}
+- {path: sites/default/settings.php.bak, category: secret_file, match: {any: ["<?php"]}}
+
+# --- データベースのダンプ ---
+- {path: dump.sql, category: db_dump, match: &sql {regex: '(CREATE TABLE|INSERT INTO|-- MySQL dump|PostgreSQL database dump|phpMyAdmin SQL Dump)'}}
+- {path: db.sql, category: db_dump, match: *sql}
+- {path: database.sql, category: db_dump, match: *sql}
+- {path: backup.sql, category: db_dump, match: *sql}
+- {path: data.sql, category: db_dump, match: *sql}
+- {path: mysql.sql, category: db_dump, match: *sql}
+- {path: users.sql, category: db_dump, match: *sql}
+- {path: site.sql, category: db_dump, match: *sql}
+- {path: wordpress.sql, category: db_dump, match: *sql}
+- {path: db_backup.sql, category: db_dump, match: *sql}
+- {path: export.sql, category: db_dump, match: *sql}
+- {path: sql.sql, category: db_dump, match: *sql}
+- {path: temp.sql, category: db_dump, match: *sql}
+- {path: backup/db.sql, category: db_dump, match: *sql}
+- {path: backup/dump.sql, category: db_dump, match: *sql}
+- {path: dump.sql.gz, category: db_dump, match: &gz {magic: ["1f8b"]}}
+- {path: db.sql.gz, category: db_dump, match: *gz}
+- {path: backup.sql.gz, category: db_dump, match: *gz}
+- {path: database.sql.gz, category: db_dump, match: *gz}
+- {path: db.sqlite, category: db_dump, match: &sqlite {magic: ["53514c69746520666f726d6174203300"]}}
+- {path: db.sqlite3, category: db_dump, match: *sqlite}
+- {path: database.sqlite, category: db_dump, match: *sqlite}
+- {path: database.db, category: db_dump, match: *sqlite}
+- {path: data.db, category: db_dump, match: *sqlite}
+- {path: users.db, category: db_dump, match: *sqlite}
+- {path: database/database.sqlite, category: db_dump, match: *sqlite}
+
+# --- サイト全体のバックアップ ---
+- {path: backup.zip, category: backup_archive, match: &archive {magic: ["504b0304", "1f8b", "526172211a07", "377abcaf271c", "425a68"]}}
+- {path: backup.tar.gz, category: backup_archive, match: *archive}
+- {path: backup.tgz, category: backup_archive, match: *archive}
+- {path: backup.tar.bz2, category: backup_archive, match: *archive}
+- {path: backup.rar, category: backup_archive, match: *archive}
+- {path: backup.7z, category: backup_archive, match: *archive}
+- {path: site.zip, category: backup_archive, match: *archive}
+- {path: site.tar.gz, category: backup_archive, match: *archive}
+- {path: www.zip, category: backup_archive, match: *archive}
+- {path: www.tar.gz, category: backup_archive, match: *archive}
+- {path: html.zip, category: backup_archive, match: *archive}
+- {path: web.zip, category: backup_archive, match: *archive}
+- {path: public_html.zip, category: backup_archive, match: *archive}
+- {path: public_html.tar.gz, category: backup_archive, match: *archive}
+- {path: htdocs.zip, category: backup_archive, match: *archive}
+- {path: wwwroot.zip, category: backup_archive, match: *archive}
+- {path: archive.zip, category: backup_archive, match: *archive}
+- {path: old.zip, category: backup_archive, match: *archive}
+- {path: src.zip, category: backup_archive, match: *archive}
+- {path: source.zip, category: backup_archive, match: *archive}
+- {path: code.zip, category: backup_archive, match: *archive}
+- {path: app.zip, category: backup_archive, match: *archive}
+- {path: dist.zip, category: backup_archive, match: *archive}
+- {path: release.zip, category: backup_archive, match: *archive}
+- {path: deploy.zip, category: backup_archive, match: *archive}
+- {path: backup/backup.zip, category: backup_archive, match: *archive}
+- {path: backups/backup.zip, category: backup_archive, match: *archive}
+
+# --- ソースコードのバックアップ ---
+- {path: index.php.bak, category: source_backup, match: &php {any: ["<?php"]}}
+- {path: index.php~, category: source_backup, match: *php}
+- {path: index.php.old, category: source_backup, match: *php}
+- {path: index.php.orig, category: source_backup, match: *php}
+- {path: index.php.save, category: source_backup, match: *php}
+- {path: index.php.txt, category: source_backup, match: *php}
+- {path: login.php.bak, category: source_backup, match: *php}
+- {path: admin.php.bak, category: source_backup, match: *php}
+- {path: .index.php.swp, category: source_backup, match: {magic: ["623056494d"]}}
+- {path: .DS_Store, category: source_backup, severity: medium, match: {magic: ["0000000142756431"]}}
+
+# --- ログファイル ---
+- {path: debug.log, category: log_file, match: &log {regex: '(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}|\[\w{3} \w{3} +\d+|\b(ERROR|WARN(ING)?|NOTICE|Exception|Stack trace)\b)'}}
+- {path: error.log, category: log_file, match: *log}
+- {path: error_log, category: log_file, match: *log}
+- {path: access.log, category: log_file, match: *log}
+- {path: app.log, category: log_file, match: *log}
+- {path: application.log, category: log_file, match: *log}
+- {path: logs/error.log, category: log_file, match: *log}
+- {path: logs/access.log, category: log_file, match: *log}
+- {path: logs/app.log, category: log_file, match: *log}
+- {path: log/production.log, category: log_file, match: *log}
+- {path: log/development.log, category: log_file, match: *log}
+- {path: storage/logs/laravel.log, category: log_file, match: *log}
+- {path: wp-content/debug.log, category: log_file, match: *log}
+- {path: npm-debug.log, category: log_file, match: {any: ["npm ERR!", "verbose"]}}
+- {path: php_errors.log, category: log_file, match: *log}
+
+# --- 情報ページ・デバッグ機能 ---
+- {path: phpinfo.php, category: info_page, match: &phpinfo {any: ["phpinfo()", "PHP Version"]}}
+- {path: info.php, category: info_page, match: *phpinfo}
+- {path: php_info.php, category: info_page, match: *phpinfo}
+- {path: pinfo.php, category: info_page, match: *phpinfo}
+- {path: test.php, category: info_page, match: *phpinfo}
+- {path: i.php, category: info_page, match: *phpinfo}
+- {path: server-status, category: info_page, match: {any: ["Apache Server Status"]}}
+- {path: server-info, category: info_page, match: {any: ["Apache Server Information"]}}
+- {path: nginx_status, category: info_page, severity: low, match: {regex: '^Active connections:'}}
+- {path: actuator/env, category: info_page, severity: high, match: {json_keys: ["propertySources", "activeProfiles"]}}
+- {path: actuator/configprops, category: info_page, severity: high, match: {json_keys: ["contexts"]}}
+- {path: actuator/heapdump, category: info_page, severity: critical, match: {magic: ["4a4156412050524f46494c45"]}}
+- {path: actuator/mappings, category: info_page, severity: low, match: {json_keys: ["contexts"]}}
+- {path: actuator, category: info_page, severity: low, match: {json_keys: ["_links"]}}
+- {path: _profiler/, category: info_page, match: {any: ["Symfony Profiler"]}}
+- {path: telescope, category: info_page, match: {any: ["Laravel Telescope", "Telescope"]}}
+- {path: horizon, category: info_page, severity: low, match: {any: ["Laravel Horizon"]}}
+- {path: elmah.axd, category: info_page, match: {any: ["Error Log for"]}}
+- {path: trace.axd, category: info_page, match: {any: ["Application Trace"]}}
+- {path: __debug__/, category: info_page, match: {any: ["djDebug", "Django Debug Toolbar"]}}
+- {path: debug/vars, category: info_page, match: {json_keys: ["cmdline", "memstats"]}}
+- {path: debug/pprof/, category: info_page, match: {any: ["/debug/pprof/"]}}
+- {path: .well-known/security.txt, category: manifest, severity: info, match: {regex: '^(Contact|Expires):'}}
+
+# --- 管理画面 ---
+- {path: admin/, category: admin_panel, match: &login {login_form: true}}
+- {path: admin/login, category: admin_panel, match: *login}
+- {path: admin.php, category: admin_panel, match: *login}
+- {path: administrator/, category: admin_panel, match: *login}
+- {path: wp-admin/, category: admin_panel, match: *login}
+- {path: wp-login.php, category: admin_panel, match: *login}
+- {path: phpmyadmin/, category: admin_panel, match: *login}
+- {path: phpMyAdmin/, category: admin_panel, match: *login}
+- {path: pma/, category: admin_panel, match: *login}
+- {path: adminer.php, category: admin_panel, match: *login}
+- {path: manager/html, category: admin_panel, match: *login}
+- {path: login/, category: admin_panel, severity: info, match: *login}
+- {path: user/login, category: admin_panel, severity: info, match: *login}
+- {path: webadmin/, category: admin_panel, match: *login}
+- {path: backend/, category: admin_panel, match: *login}
+- {path: cms/, category: admin_panel, match: *login}
+- {path: panel/, category: admin_panel, match: *login}
+- {path: dashboard/, category: admin_panel, match: *login}
+- {path: typo3/, category: admin_panel, match: *login}
+- {path: umbraco/, category: admin_panel, match: *login}
+- {path: jenkins/login, category: admin_panel, match: *login}
+- {path: grafana/login, category: admin_panel, match: *login}
+- {path: kibana/, category: admin_panel, match: *login}
+- {path: solr/, category: admin_panel, match: {any: ["Solr Admin"]}}
+- {path: console/, category: admin_panel, match: *login}
+
+# --- ディレクトリリスティング ---
+- {path: uploads/, category: dir_listing, match: &listing {regex: '(<title>\s*Index of /|<h1>\s*Index of /|Directory listing for /|\[To Parent Directory\])'}}
+- {path: upload/, category: dir_listing, match: *listing}
+- {path: files/, category: dir_listing, match: *listing}
+- {path: backup/, category: dir_listing, match: *listing}
+- {path: backups/, category: dir_listing, match: *listing}
+- {path: images/, category: dir_listing, match: *listing}
+- {path: img/, category: dir_listing, match: *listing}
+- {path: assets/, category: dir_listing, match: *listing}
+- {path: static/, category: dir_listing, match: *listing}
+- {path: tmp/, category: dir_listing, match: *listing}
+- {path: temp/, category: dir_listing, match: *listing}
+- {path: data/, category: dir_listing, match: *listing}
+- {path: logs/, category: dir_listing, match: *listing}
+- {path: log/, category: dir_listing, match: *listing}
+- {path: old/, category: dir_listing, match: *listing}
+- {path: includes/, category: dir_listing, match: *listing}
+- {path: wp-content/uploads/, category: dir_listing, match: *listing}
+- {path: storage/, category: dir_listing, match: *listing}
+
+# --- 依存関係・ビルド設定 ---
+- {path: composer.json, category: manifest, match: {json_keys: ["require", "require-dev"]}}
+- {path: composer.lock, category: manifest, match: {json_keys: ["packages"]}}
+- {path: package.json, category: manifest, match: {json_keys: ["dependencies", "devDependencies"]}}
+- {path: package-lock.json, category: manifest, match: {json_keys: ["lockfileVersion"]}}
+- {path: yarn.lock, category: manifest, match: {any: ["# yarn lockfile", "__metadata:"]}}
+- {path: Gemfile.lock, category: manifest, match: {regex: '^GEM\s*$'}}
+- {path: requirements.txt, category: manifest, match: {regex: '^[A-Za-z0-9_.-]+\s*(==|>=|~=)'}}
+- {path: Pipfile.lock, category: manifest, match: {json_keys: ["_meta"]}}
+- {path: go.mod, category: manifest, match: {regex: '^module\s'}}
+- {path: docker-compose.yml, category: build_config, match: &compose {regex: '^services:\s*$'}}
+- {path: docker-compose.yaml, category: build_config, match: *compose}
+- {path: Dockerfile, category: build_config, match: {regex: '^FROM\s+\S'}}
+- {path: .gitlab-ci.yml, category: build_config, match: {regex: '^(stages|variables|include|[\w-]+):\s*$'}}
+- {path: .travis.yml, category: build_config, match: {regex: '^(language|script|install):'}}
+- {path: Jenkinsfile, category: build_config, match: {any: ["pipeline", "node {"]}}
+- {path: .github/workflows/deploy.yml, category: build_config, match: {regex: '^(on|jobs):'}}

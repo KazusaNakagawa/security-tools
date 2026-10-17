@@ -210,3 +210,26 @@ def test_plan_marks_dependents_of_failing_plan(tmp_path):
     reg = registry(BrokenPlan("a", group="files"), Check("b", group="files", requires=["a"]))
     plan = {c.check_id: c.status for c in Orchestrator(reg, ctx(tmp_path)).plan()}
     assert plan == {"a": "error", "b": "skipped_by_option"}
+
+
+async def test_findings_with_the_same_id_are_deduplicated(tmp_path):
+    f = Finding.create(
+        check_id="a",
+        kind="k",
+        target="https://x.example/",
+        ipa_items=["A-6"],
+        severity=Severity.low,
+        title="t",
+        description="d",
+        remediation="r",
+    )
+
+    class Twice(Check):
+        async def run(self, ctx):
+            return CheckResult(
+                findings=[f, f],
+                coverage=[Coverage(check_id=self.id, target="*", status="executed")],
+            )
+
+    run = await Orchestrator(registry(Twice("a")), ctx(tmp_path)).run()
+    assert [x.id for x in run.findings] == [f.id]
