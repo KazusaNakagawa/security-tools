@@ -121,7 +121,8 @@ def validate(
     if not coverage:
         typer.echo("  (no checks registered yet)")
     for c in coverage:
-        typer.echo(f"  {c.status:<18} {c.check_id} {c.detail}".rstrip())
+        target = "" if c.target == "*" else f" {c.target}"
+        typer.echo(f"  {c.status:<18} {c.check_id}{target} {c.detail}".rstrip())
     typer.echo(f"\nUnverified IPA items ({len(plan.unverified_items)}):")
     typer.echo("  " + (", ".join(plan.unverified_items) or "none"))
     if plan.na_items:

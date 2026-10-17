@@ -240,3 +240,20 @@ class TestScanOutput:
         result = invoke("scan", "--workspace", str(tmp_path))
         assert "0 finding" in result.output
         assert next((tmp_path / "out" / "runs").glob("*/findings.json")).is_file()
+
+
+def test_validate_shows_check_targets(tmp_path, monkeypatch):
+    from alertcheck.core.models import Coverage
+
+    class TwoTargets(FindingCheck):
+        def plan(self, ctx):
+            return [
+                Coverage(check_id=self.id, target="https://a.example/", status="executed"),
+                Coverage(check_id=self.id, target="https://b.example/", status="executed"),
+            ]
+
+    invoke("init", "--workspace", str(tmp_path))
+    patch_registry(monkeypatch, TwoTargets())
+    out = invoke("validate", "--workspace", str(tmp_path)).output
+    assert "demo https://a.example/" in out
+    assert "demo https://b.example/" in out
