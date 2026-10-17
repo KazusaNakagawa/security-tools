@@ -39,6 +39,7 @@ runs = Table(
     Column("options_json", Text),
     Column("scope_hash", String),
     Column("score_json", Text),
+    Column("scope_json", Text),
 )
 findings = Table(
     "findings",
@@ -102,6 +103,19 @@ class SqliteResultStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._engine = create_engine(f"sqlite:///{self.path}")
         metadata.create_all(self._engine)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was created (create_all never alters)."""
+        with self._engine.begin() as con:
+            for table in metadata.sorted_tables:
+                existing = {r[1] for r in con.exec_driver_sql(f"PRAGMA table_info({table.name})")}
+                for column in table.columns:
+                    if column.name not in existing:
+                        ddl = column.type.compile(dialect=self._engine.dialect)
+                        con.exec_driver_sql(
+                            f"ALTER TABLE {table.name} ADD COLUMN {column.name} {ddl}"
+                        )
 
     def save_run(self, run: RunResult) -> None:
         with self._engine.begin() as con:
@@ -117,6 +131,7 @@ class SqliteResultStore:
                     tool_version=run.tool_version,
                     options_json=json.dumps(run.options, ensure_ascii=False),
                     score_json=run.score.model_dump_json() if run.score else None,
+                    scope_json=json.dumps(run.scope, ensure_ascii=False) if run.scope else None,
                 )
             )
             if run.findings:
@@ -222,6 +237,7 @@ class SqliteResultStore:
                 for r in i_rows
             ],
             score=Score.model_validate_json(row["score_json"]) if row["score_json"] else None,
+            scope=json.loads(row["scope_json"]) if row["scope_json"] else None,
         )
 
     def _run_ids(self) -> list[str]:

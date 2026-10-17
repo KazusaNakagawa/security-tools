@@ -489,7 +489,9 @@ CREATE TABLE triage (                       -- 第 2 段階: 対応状況
 5. Finding 詳細: 重大度順。根拠、修正方針、参考リンク
 6. 付録: 実行した検査と Coverage、質問回答一覧、スコープ定義
 
-外部 CSS / JS / フォントを読み込まない単一ファイルとし、オフラインの端末やメール添付でもそのまま開けるようにする。
+外部 CSS / JS / フォントを読み込まない単一ファイルとし、オフラインの端末やメール添付でもそのまま開けるようにする。実装では JavaScript を使わず（折りたたみは `<details>`）、`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` の meta タグで外部読み込みを禁止する。参考資料は `http(s)` の URL だけをリンクにし、`rel="noopener noreferrer"` を付ける。Jinja2 の自動エスケープを有効にし、根拠は `tojson` で出力する。
+
+組織名と対象はスキャン時の `scope.yaml` の要約をランと一緒に保存し（`runs.scope_json`）、レポートはそれを使う。「前回との差分」は第 2 段階で追加する。`alertcheck report` の終了コードは対象のランの結果に従う（`scan` と同じ）。
 
 ### 10.2 JSON
 

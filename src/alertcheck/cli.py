@@ -23,6 +23,7 @@ from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
 from alertcheck.infra.factory import Infra, build_infra
 from alertcheck.judge.judge import judge, score
+from alertcheck.report.render import render_html, render_json
 from alertcheck.vulndb import cache_dir, update_eol, update_kev
 
 EXIT_OK, EXIT_HIGH, EXIT_CRITICAL, EXIT_ERROR = 0, 1, 2, 3
@@ -186,6 +187,11 @@ def scan(
         run.findings, run.coverage, answers, available_checks={c.id for c in registry.all()}
     )
     run.score = score(run.items, run.findings)
+    run.scope = {
+        "organization": scope.organization,
+        "targets": scope.targets.model_dump(),
+        "exclude": list(scope.exclude),
+    }
     infra.store.save_run(run)
 
     findings = sorted(run.findings, key=lambda f: (-f.severity.rank, f.check_id, f.target))
@@ -255,13 +261,46 @@ def _write_findings(infra: Infra, run: RunResult, findings: list[Finding]) -> st
     return infra.workspace.write_output(run.id, "findings.json", data, "application/json")
 
 
+_REPORT_FORMATS = ("html", "json")
+
+
 @app.command()
 def report(
+    workspace: WorkspaceOpt = Path("."),
     run: Annotated[str | None, typer.Option("--run", help="Run ID (default: latest).")] = None,
-    format: Annotated[str, typer.Option(help="Comma-separated: html,json,md,csv.")] = "html,json",
+    format: Annotated[str, typer.Option(help="Comma-separated: html,json.")] = "html,json",
+    redact_ips: Annotated[bool, typer.Option(help="Hide IP addresses (for sharing).")] = False,
 ) -> None:
-    """Render reports for a run."""
-    raise _not_implemented("report", "issue #7")
+    """Render reports for a stored run.
+
+    Exit code follows the run: 0 no critical/high, 1 high, 2 critical,
+    3 execution error (or the report could not be produced).
+    """
+    formats = [f.strip().lower() for f in format.split(",") if f.strip()]
+    unknown = sorted(set(formats) - set(_REPORT_FORMATS))
+    if unknown or not formats:
+        raise _fail(f"unknown report format(s): {', '.join(unknown) or format!r} (use html,json)")
+    try:
+        infra = build_infra(os.environ.get("ALERTCHECK_RUNTIME", "local"), workspace)
+    except ConfigError as e:
+        raise _fail(str(e)) from None
+    stored = infra.store.get_run(run) if run else infra.store.latest_run()
+    if stored is None:
+        raise _fail(f"run not found: {run}" if run else "no runs yet; run 'alertcheck scan' first")
+
+    if "html" in formats:
+        html = render_html(stored, redact_ips=redact_ips)
+        path = infra.workspace.write_output(
+            stored.id, "report.html", html.encode("utf-8"), "text/html"
+        )
+        typer.echo(f"HTML: {path}")
+    if "json" in formats:
+        data = json.dumps(render_json(stored, redact_ips=redact_ips), ensure_ascii=False, indent=2)
+        path = infra.workspace.write_output(
+            stored.id, "report.json", data.encode("utf-8"), "application/json"
+        )
+        typer.echo(f"JSON: {path}")
+    raise typer.Exit(_exit_code(stored))
 
 
 @app.command()
