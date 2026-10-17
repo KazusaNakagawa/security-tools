@@ -174,3 +174,86 @@ def test_init_writes_atomically(tmp_path, monkeypatch):
     invoke("init", "--workspace", str(tmp_path))
     assert {os.path.basename(d) for _, d in calls} == {"scope.yaml", "questionnaire.yaml"}
     assert not list(tmp_path.glob("*.tmp"))
+
+
+class FindingCheck:
+    id, group, requires, active, ipa_items = "demo", "files", [], False, ["A-1"]
+
+    def plan(self, ctx):
+        from alertcheck.core.models import Coverage
+
+        return [Coverage(check_id=self.id, target="*", status="executed")]
+
+    async def run(self, ctx):
+        from alertcheck.core.models import CheckResult, Coverage, Finding, Severity
+
+        def make(kind, sev, title, target):
+            return Finding.create(
+                check_id=self.id,
+                kind=kind,
+                target=target,
+                ipa_items=["A-1"],
+                severity=sev,
+                title=title,
+                description="d",
+                remediation=f"fix {kind}",
+                evidence={"note": "yamada@example.co.jp"},
+            )
+
+        return CheckResult(
+            findings=[
+                make("low1", Severity.low, "低い問題", "https://a.example/x"),
+                make("crit", Severity.critical, "重大な問題", "https://a.example/.env"),
+                make("med", Severity.medium, "中程度の問題", "https://a.example/"),
+            ],
+            coverage=[Coverage(check_id=self.id, target="*", status="executed")],
+        )
+
+
+class TestScanOutput:
+    def test_findings_are_listed_by_severity(self, tmp_path, monkeypatch):
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FindingCheck())
+        result = invoke("scan", "--workspace", str(tmp_path))
+        assert result.exit_code == 2
+        out = result.output
+        assert out.index("重大な問題") < out.index("中程度の問題") < out.index("低い問題")
+        assert "https://a.example/.env" in out
+        assert "fix crit" in out
+
+    def test_findings_json_is_written(self, tmp_path, monkeypatch):
+        import json
+
+        invoke("init", "--workspace", str(tmp_path))
+        patch_registry(monkeypatch, FindingCheck())
+        result = invoke("scan", "--workspace", str(tmp_path))
+        path = next((tmp_path / "out" / "runs").glob("*/findings.json"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["run"]["id"] in result.output
+        assert [f["severity"] for f in data["findings"]] == ["critical", "medium", "low"]
+        assert data["findings"][0]["evidence"]["note"] == "y***@example.co.jp"
+        assert {c["status"] for c in data["coverage"]} == {"executed"}
+        assert str(path) in result.output
+
+    def test_no_findings_message(self, tmp_path):
+        invoke("init", "--workspace", str(tmp_path))
+        result = invoke("scan", "--workspace", str(tmp_path))
+        assert "0 finding" in result.output
+        assert next((tmp_path / "out" / "runs").glob("*/findings.json")).is_file()
+
+
+def test_validate_shows_check_targets(tmp_path, monkeypatch):
+    from alertcheck.core.models import Coverage
+
+    class TwoTargets(FindingCheck):
+        def plan(self, ctx):
+            return [
+                Coverage(check_id=self.id, target="https://a.example/", status="executed"),
+                Coverage(check_id=self.id, target="https://b.example/", status="executed"),
+            ]
+
+    invoke("init", "--workspace", str(tmp_path))
+    patch_registry(monkeypatch, TwoTargets())
+    out = invoke("validate", "--workspace", str(tmp_path)).output
+    assert "demo https://a.example/" in out
+    assert "demo https://b.example/" in out
