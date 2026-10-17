@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Annotated
@@ -13,7 +14,7 @@ from alertcheck.config.questionnaire import load_answers, load_questions, render
 from alertcheck.config.scope import ConfigError, ScopeConfig, load_scope
 from alertcheck.config.templates import INPUT_DIRS, SCOPE_TEMPLATE
 from alertcheck.core.context import Context, RunOptions
-from alertcheck.core.models import Answer, Coverage, RunResult, Severity
+from alertcheck.core.models import Answer, Coverage, Finding, RunResult, Severity
 from alertcheck.core.orchestrator import Orchestrator
 from alertcheck.core.plan import build_plan
 from alertcheck.core.registry import Registry, RegistryError
@@ -177,18 +178,44 @@ def scan(
     run.answers = answers
     infra.store.save_run(run)
 
-    typer.echo(f"Run {run.id}: {len(run.findings)} finding(s)")
+    findings = sorted(run.findings, key=lambda f: (-f.severity.rank, f.check_id, f.target))
+    results_path = _write_findings(infra, run, findings)
+
+    typer.echo(f"Run {run.id}: {len(findings)} finding(s)")
     for sev in Severity:
-        n = sum(1 for f in run.findings if f.severity == sev)
+        n = sum(1 for f in findings if f.severity == sev)
         if n:
             typer.echo(f"  {sev.value:<8} {n}")
+    if findings:
+        typer.echo("\nFindings:")
+    for f in findings:
+        typer.echo(f"  [{f.severity.value}] {f.check_id}  {f.title}")
+        typer.echo(f"      {f.target}")
+        typer.echo(f"      対策: {f.remediation}")
+    if findings:
+        typer.echo("")
     for c in run.coverage:
         # partial probe failures must not look like a clean result
         if c.status != "executed" or "probes failed" in c.detail:
             typer.echo(f"  {c.status:<18} {c.check_id} {c.target} {c.detail}".rstrip())
     for w in ctx.guard.warnings:
         typer.echo(f"warning: {w}")
+    typer.echo(f"Results: {results_path}")
     raise typer.Exit(_exit_code(run))
+
+
+def _write_findings(infra: Infra, run: RunResult, findings: list[Finding]) -> str:
+    """Interim machine-readable output until the report command (#7) lands."""
+    payload = {
+        "schema": "alertcheck.findings/0",
+        "run": run.model_dump(
+            mode="json", include={"id", "started_at", "finished_at", "tool_version", "options"}
+        ),
+        "findings": [f.model_dump(mode="json") for f in findings],
+        "coverage": [c.model_dump(mode="json") for c in run.coverage],
+    }
+    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    return infra.workspace.write_output(run.id, "findings.json", data, "application/json")
 
 
 @app.command()
