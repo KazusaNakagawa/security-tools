@@ -5,7 +5,7 @@ name: alertcheck-e2e
 
 services:
   web:
-    image: nginx:1.29-alpine
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
     volumes:
       - ./target/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./target/html:/usr/share/nginx/html:ro
@@ -14,7 +14,7 @@ services:
     depends_on: [app]
 
   app:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     command: ["node", "/app/server.js"]
     volumes:
       - ./target/app:/app:ro
@@ -22,7 +22,7 @@ services:
       e2e: {ipv4_address: 172.30.0.11}
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     networks:
       e2e: {ipv4_address: 172.30.0.12}
 
