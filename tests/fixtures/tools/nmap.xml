@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sT -sV" version="7.95">
+<host><status state="up"/>
+<address addr="93.184.216.34" addrtype="ipv4"/>
+<ports>
+<port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="8.2p1"/></port>
+<port protocol="tcp" portid="80"><state state="open"/><service name="http" product="nginx" version="1.18.0"/></port>
+<port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx"/></port>
+<port protocol="tcp" portid="6379"><state state="open"/><service name="redis" product="Redis key-value store" version="7.2.4"/></port>
+<port protocol="tcp" portid="3306"><state state="filtered"/><service name="mysql"/></port>
+<port protocol="tcp" portid="23"><state state="open"/><service name="telnet"/></port>
+</ports>
+</host>
+<host><status state="down"/><address addr="93.184.216.35" addrtype="ipv4"/></host>
+</nmaprun>

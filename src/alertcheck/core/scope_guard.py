@@ -204,6 +204,10 @@ class ScopeGuard:
             return _ALLOW
         return Decision(False, f"out of scope: {url}")
 
+    async def resolve(self, host: str) -> list[str]:
+        """Plain name resolution (no validation), for inventory comparison only."""
+        return await self._resolver(host.lower().rstrip("."))
+
     async def check_resolved(self, host: str) -> Decision:
         """check_host plus validation of where the name actually resolves."""
         decision = self.check_host(host)
