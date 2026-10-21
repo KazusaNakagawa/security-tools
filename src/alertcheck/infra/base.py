@@ -37,6 +37,9 @@ class ResultStore(Protocol):
         self, run_id: str, service: str, rows: list[dict[str, Any]]
     ) -> None: ...
     def account_snapshot(self, run_id: str, service: str) -> list[dict[str, Any]]: ...
+    def latest_account_snapshot(
+        self, service: str, *, exclude: str | None = None
+    ) -> list[dict[str, Any]]: ...
 
 
 class SecretProvider(Protocol):

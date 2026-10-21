@@ -1,0 +1,6 @@
+email,employee_id,status,retired_at
+yamada@example.co.jp,E001,active,
+suzuki@example.co.jp,E002,active,
+alice@example.co.jp,E100,active,
+bob@example.co.jp,E101,active,
+carol@example.co.jp,E102,retired,2026-09-30

@@ -1,0 +1,13 @@
+# logs.access が URL・UA に対して照合する攻撃の痕跡（設計書 7.3）。
+# target: path（URL パス + クエリ）または ua（User-Agent）。
+signatures:
+  - {id: sqli_union, target: path, label: SQL インジェクション, pattern: "(?i)union(\\s|/\\*.*?\\*/|%20|\\+)+select"}
+  - {id: sqli_quote, target: path, label: SQL インジェクション, pattern: "(?i)(or|and)(\\s|%20|\\+)+['\"\\d]+(\\s|%20|\\+)*=(\\s|%20|\\+)*['\"\\d]"}
+  - {id: sqli_sleep, target: path, label: SQL インジェクション（時間差）, pattern: "(?i)(sleep|benchmark|pg_sleep|waitfor\\s+delay)\\s*\\("}
+  - {id: path_traversal, target: path, label: パストラバーサル, pattern: "(\\.\\./|\\.\\.%2f|%2e%2e%2f|\\.\\.\\\\|%252e%252e)"}
+  - {id: os_command, target: path, label: OS コマンドインジェクション, pattern: "(?i)(;|\\||%3b|%7c|`|\\$\\()\\s*(cat|wget|curl|bash|sh|nc|ncat|python|perl|id|whoami|uname)\\b"}
+  - {id: log4shell, target: path, label: Log4Shell, pattern: "(?i)\\$\\{jndi:(ldap|ldaps|rmi|dns|iiop)"}
+  - {id: webshell_access, target: path, label: Web シェルらしきパスへのアクセス, pattern: "(?i)/(c99|r57|wso|b374k|shell|cmd|backdoor)\\.(php|jsp|asp|aspx)\\b"}
+  - {id: xss_script, target: path, label: クロスサイトスクリプティング, pattern: "(?i)(<script|%3cscript|javascript:|onerror\\s*=|onload\\s*=)"}
+  - {id: ssrf_meta, target: path, label: SSRF（メタデータ）, pattern: "(169\\.254\\.169\\.254|metadata\\.google|/latest/meta-data/)"}
+  - {id: scanner_ua, target: ua, label: 脆弱性スキャナの User-Agent, pattern: "(?i)(sqlmap|nikto|nmap|nuclei|acunetix|nessus|masscan|zgrab|dirbuster|gobuster|wpscan|hydra)"}

@@ -15,5 +15,5 @@ def test_network_checks_are_registered():
         "deps",
     } <= ids
     assert all(not c.active for c in reg.all())
-    assert {c.id for c in reg.all() if c.group == "files"} == {"deps"}
+    assert {c.id for c in reg.all() if c.group == "files"} == {"deps", "logs.access", "accounts"}
     reg.stages()  # no unknown dependencies or cycles

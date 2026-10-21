@@ -350,7 +350,9 @@ class Check(Protocol):
    - `url_allowlist`（正規表現の行リスト）に一致しない URL への 200 応答を件数順に上位 50 件。許可リストがない場合は、拡張子 `.php` `.jsp` `.aspx` 等で出現が少数 IP に限られる URL を Web シェル候補として抽出する
    - `data/attack_signatures.yaml` のパターン（SQLi、パストラバーサル、OS コマンド、Log4Shell、既知スキャナ UA）に一致したリクエストを、ステータス別に集計する。**一致かつ 200 応答**を重点として high にする
    - 単一 IP が全体の 20% 以上、または 1 時間に 1,000 件以上
-4. ログ項目の充足（A-5）: 送信元 IP・ユーザー識別子・応答時間が欠けていれば low の Finding を出す。
+4. ログ項目の充足（A-5）: 送信元 IP・ユーザー識別子が欠けていれば low の Finding を出す。
+
+実装では、パーサは nginx/Apache combined・JSON Lines（CloudFront 含む）・ALB に対応し、gzip を透過的に読み、レコードを 1 行ずつ処理する（日次カウンタと上位 N だけを保持するため、100 万行を 60 秒以内・数十 MB メモリで処理する）。攻撃シグネチャは `data/attack_signatures.yaml` に宣言し、URL パスと User-Agent に対して照合する。期間が直近 90 日に満たない場合は、`coverage_gap` の Finding で不足分（P1-2 は 30 日、P1-3 は 90 日）を示す。
 
 #### logs.auth（P2-2）
 
@@ -372,7 +374,9 @@ class Check(Protocol):
 | 長期未使用 | `last_login_at` が 90 日以上前 | low（管理者は medium） |
 | 共有アカウント疑い | `account_id` が `admin`, `test`, `shared`, `info` 等、または同一メールに複数アカウント | medium |
 
-初回実行時は「再有効化」を判定できないため、Coverage に「前回データなし」と記録し、作成日時と最終ログインの矛盾（作成日より前のログイン、`deleted` なのに最近のログイン）で代替チェックする。
+初回実行時は「再有効化」を判定できないため、Coverage に「前回データなし」と記録する。作成日より前のログインは `login_before_creation` として別途検出する。
+
+実装では、CSV を Google Workspace・Entra ID・AWS IAM credential report・GitHub org のマッピング、または `custom`（列名を scope.yaml で指定）で共通スキーマに変換する。ルールは `data/account_rules.yaml` に宣言する。再有効化は、SQLite に保存した直近のアカウントスナップショット（サービス単位）と比較して判定し、今回のスナップショットを次回のために保存する。
 
 #### deps（P1-4）
 

@@ -278,6 +278,23 @@ class SqliteResultStore:
                     [{"run_id": run_id, "service": service, **r} for r in rows],
                 )
 
+    def latest_account_snapshot(
+        self, service: str, *, exclude: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Snapshot of ``service`` from the most recent stored run (optionally excluding one)."""
+        condition = account_snapshots.c.service == service
+        if exclude is not None:
+            condition &= account_snapshots.c.run_id != exclude
+        with self._engine.connect() as con:
+            run_id = con.execute(
+                select(account_snapshots.c.run_id)
+                .join(runs, runs.c.id == account_snapshots.c.run_id)
+                .where(condition)
+                .order_by(runs.c.started_at.desc())
+                .limit(1)
+            ).scalar()
+        return self.account_snapshot(run_id, service) if run_id else []
+
     def account_snapshot(self, run_id: str, service: str) -> list[dict[str, Any]]:
         with self._engine.connect() as con:
             result = (

@@ -1,0 +1,6 @@
+login,mail,role,status,mfa,created_at,last_login_at
+admin,admin@example.co.jp,admin,active,false,2026-10-01,2026-10-20
+alice,alice@example.co.jp,user,active,true,2024-01-01,2026-10-19
+bob,bob@example.co.jp,user,active,false,2023-05-01,2026-01-01
+shared,,user,active,false,2022-01-01,2026-10-18
+retired,carol@example.co.jp,admin,active,true,2021-01-01,2026-10-10

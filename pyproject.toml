@@ -30,6 +30,8 @@ api = "alertcheck.checks.network.api:ApiCheck"
 "vuln.version" = "alertcheck.checks.network.vuln_version:VulnVersionCheck"
 "vuln.templates" = "alertcheck.checks.network.vuln_templates:VulnTemplatesCheck"
 deps = "alertcheck.checks.files.deps:DepsCheck"
+"logs.access" = "alertcheck.checks.files.logs_access:LogsAccessCheck"
+accounts = "alertcheck.checks.files.accounts:AccountsCheck"
 
 [dependency-groups]
 dev = [
@@ -49,6 +51,7 @@ packages = ["src/alertcheck"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["perf: performance benchmarks (slow; run explicitly)"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

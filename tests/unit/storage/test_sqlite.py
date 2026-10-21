@@ -139,3 +139,22 @@ def test_old_database_is_migrated(tmp_path):
     assert store.get_run("old").scope is None
     store.save_run(make_run("new", 2))
     assert store.latest_run().id == "new"
+
+
+def test_latest_account_snapshot(store):
+    store.save_run(make_run("r1", 1))
+    store.save_run(make_run("r2", 2))
+    store.save_account_snapshot(
+        "r1", "gws", [{"account_id": "a", "status": "disabled", "role": "user", "mfa": False}]
+    )
+    store.save_account_snapshot(
+        "r2", "gws", [{"account_id": "a", "status": "active", "role": "user", "mfa": True}]
+    )
+    assert store.latest_account_snapshot("gws") == [
+        {"account_id": "a", "status": "active", "role": "user", "mfa": True}
+    ]
+    # excluding the newest falls back to the earlier run
+    assert store.latest_account_snapshot("gws", exclude="r2") == [
+        {"account_id": "a", "status": "disabled", "role": "user", "mfa": False}
+    ]
+    assert store.latest_account_snapshot("other") == []
