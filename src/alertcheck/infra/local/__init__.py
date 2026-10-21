@@ -107,3 +107,15 @@ class InMemoryResultStore:
 
     def account_snapshot(self, run_id: str, service: str) -> list[dict[str, Any]]:
         return list(self._snapshots.get((run_id, service), []))
+
+    def latest_account_snapshot(
+        self, service: str, *, exclude: str | None = None
+    ) -> list[dict[str, Any]]:
+        candidates = [
+            (r.started_at, rid)
+            for (rid, svc) in self._snapshots
+            if svc == service and rid != exclude and (r := self._runs.get(rid))
+        ]
+        if not candidates:
+            return []
+        return self.account_snapshot(max(candidates)[1], service)

@@ -1,0 +1,57 @@
+# accounts 検査のルール（設計書 7.4）。評価は accounts.py が行う。
+# severity は固定値、または admin: / other: で管理者とそれ以外を分ける。
+rules:
+  - id: retired_employee
+    title: 退職者のアカウントが有効なまま
+    ipa_items: [P2-3]
+    severity: {admin: critical, other: high}
+    description: 名簿で退職扱いの人物のアカウントが、まだ有効（active）になっている。
+    remediation: 直ちに無効化し、付与されていた権限とアクセス履歴を確認する。
+  - id: unknown_account
+    title: 名簿にない有効なアカウント
+    ipa_items: [P2-3]
+    severity: high
+    description: 有効なアカウントだが、メールアドレスが人事名簿になく、責任者（owner）も記録されていない。
+    remediation: 利用者と用途を確認し、不明なら無効化する。
+  - id: shared_account
+    title: 共有アカウントの疑い
+    ipa_items: [A-3]
+    severity: medium
+    description: アカウント名が admin/test/shared 等、または同一メールに複数アカウントがあり、個人に紐づかない共有利用の疑いがある。
+    remediation: 利用者ごとの個別アカウントに分け、共有アカウントを廃止する。
+  - id: recent_admin
+    title: 最近作成された管理者アカウント
+    ipa_items: [A-3, P2-3]
+    severity: medium
+    description: 直近 90 日に作成された管理者権限のアカウント。不正に作成された可能性がないか確認する。
+    remediation: 作成の経緯と申請記録を確認する。身に覚えがなければ無効化する。
+  - id: reenabled
+    title: 無効だったアカウントが再有効化された
+    ipa_items: [P2-3]
+    severity: high
+    description: 前回の診断では無効（disabled/deleted）だったアカウントが、今回は有効になっている。
+    remediation: 再有効化の経緯を確認する。申請がなければ不正操作を疑い、無効化して調査する。
+  - id: mfa_off
+    title: 多要素認証が無効
+    ipa_items: [S-1, A-2]
+    severity: {admin: high, other: medium}
+    description: アカウントで多要素認証が有効になっていない。
+    remediation: 多要素認証を必須にする。特に管理者は最優先で設定する。
+  - id: admin_excess
+    title: 管理者権限の付与が多い
+    ipa_items: [A-3, S-2]
+    severity: medium
+    description: 管理者権限を持つアカウントの割合または数が多い。権限の最小化ができていない可能性がある。
+    remediation: 管理者権限を必要最小限の利用者に絞る。
+  - id: inactive
+    title: 長期間ログインのないアカウント
+    ipa_items: [S-3]
+    severity: {admin: medium, other: low}
+    description: 90 日以上ログインがないアカウント。棚卸しで無効化の対象になりうる。
+    remediation: 利用実態を確認し、不要なら無効化する。
+  - id: login_before_creation
+    title: 作成日より前のログイン記録
+    ipa_items: [P2-3]
+    severity: medium
+    description: 最終ログイン日が作成日より前になっており、台帳のデータに矛盾がある。
+    remediation: アカウントの作成・変更履歴を確認する。改ざんや誤記の可能性を調べる。

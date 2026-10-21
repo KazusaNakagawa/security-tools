@@ -1,0 +1,5 @@
+Email Address [Required],Status [READ ONLY],Last Sign In [READ ONLY],2sv Enrolled [READ ONLY],Org Unit Path [Required],Admin Role
+yamada@example.co.jp,Active,2026/10/15 09:00:00,True,/,Super Admin
+suzuki@example.co.jp,Active,2026/07/01 08:00:00,False,/Sales,
+tanaka@example.co.jp,Suspended,2025/01/01 00:00:00,False,/,
+sato@example.co.jp,Active,Never logged in,False,/Sales,
