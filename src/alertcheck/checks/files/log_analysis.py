@@ -17,7 +17,10 @@ from alertcheck.checks.files.log_parser import LogRecord
 
 _RECENT_WINDOW = 7
 _MIN_BASELINE = 14
+_STALE_GRACE = 2  # the newest log day may lag "today" by this many days and still count as current
 _SUSPECT_EXT = re.compile(r"\.(php|phtml|jsp|jspx|asp|aspx|cgi|pl|py|sh)(\?|$)", re.IGNORECASE)
+# cap distinct keys tracked so an adversarial log (millions of unique IPs/URLs) cannot exhaust memory
+_MAX_KEYS = 100_000
 
 
 class Signature(BaseModel):
@@ -77,9 +80,11 @@ def coverage_days(timestamps: list[dt.datetime | None], *, today: dt.date) -> Co
         return Coverage(None, None, 0, False, False)
     oldest, newest = days[0], days[-1]
     span = (newest - oldest).days + 1
-    # measured from today so a stale log does not count as recent coverage
-    recent = (today - oldest).days + 1
-    return Coverage(oldest, newest, span, recent >= 30, recent >= 90)
+    # the window is satisfied only when the log is current (newest near today) AND
+    # reaches back far enough; a stale log reaching back far does not count
+    current = (today - newest).days <= _STALE_GRACE
+    reach = (today - oldest).days + 1
+    return Coverage(oldest, newest, span, current and reach >= 30, current and reach >= 90)
 
 
 @dataclass(frozen=True)
@@ -90,9 +95,17 @@ class Anomaly:
     z: float
 
 
-def zscore_anomalies(daily: dict[dt.date, int], *, threshold: float) -> list[Anomaly]:
+def zscore_anomalies(
+    daily: dict[dt.date, int], *, threshold: float, span: tuple[dt.date, dt.date] | None = None
+) -> list[Anomaly]:
     if not daily:
         return []
+    if span is not None:
+        # fill zero-traffic days so an outage (a day absent from the counter) is visible
+        oldest, newest = span
+        filled = {oldest + dt.timedelta(days=i): 0 for i in range((newest - oldest).days + 1)}
+        filled.update(daily)
+        daily = filled
     days = sorted(daily)
     recent = days[-_RECENT_WINDOW:]
     baseline = [daily[d] for d in days if d not in set(recent)]
@@ -128,7 +141,8 @@ class LogStats:
 
     def add(self, r: LogRecord) -> None:
         self.total += 1
-        self.ip_counter[r.client_ip] += 1
+        if r.client_ip in self.ip_counter or len(self.ip_counter) < _MAX_KEYS:
+            self.ip_counter[r.client_ip] += 1
         if not r.client_ip:
             self.missing_ip += 1
         if r.user is None:
@@ -161,13 +175,17 @@ class LogStats:
     def _note_200(self, r: LogRecord) -> None:
         url = r.path
         if self.allowlist is not None:
-            if not any(p.search(url) for p in self.allowlist):
+            if not any(p.search(url) for p in self.allowlist) and (
+                url in self.unexpected_200 or len(self.unexpected_200) < _MAX_KEYS
+            ):
                 self.unexpected_200[url] += 1
-        elif _SUSPECT_EXT.search(url):
+        elif _SUSPECT_EXT.search(url) and (
+            url in self.webshell_suspect or len(self.webshell_suspect) < _MAX_KEYS
+        ):
             self.webshell_suspect[url].add(r.client_ip)
 
     def top_ip(self) -> list[tuple[str, int]]:
-        return self.ip_counter.most_common(5)
+        return [(ip, n) for ip, n in self.ip_counter.most_common() if ip][:5]
 
     def webshell_candidates(self) -> list[str]:
         # dynamic files hit by only a few IPs look more like a shell than a shared page

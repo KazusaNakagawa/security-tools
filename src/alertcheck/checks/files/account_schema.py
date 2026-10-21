@@ -12,6 +12,8 @@ _TRUE = {"true", "yes", "1", "enabled", "on", "active"}
 _ADMIN = re.compile(r"admin|owner|superuser|root", re.IGNORECASE)
 _DISABLED = {"suspended", "disabled", "inactive", "deprovisioned", "archived"}
 _DELETED = {"deleted", "removed"}
+# boolean "enabled" columns (Entra accountEnabled, IAM password_enabled): false means disabled
+_FALSE = {"false", "no", "0", "off"}
 
 
 @dataclass
@@ -69,7 +71,7 @@ def _norm_status(value: str | None) -> str:
     value = (value or "").strip().lower()
     if value in _DELETED:
         return "deleted"
-    if value in _DISABLED:
+    if value in _DISABLED or value in _FALSE:
         return "disabled"
     return "active"
 
@@ -127,7 +129,7 @@ _MAPPINGS: dict[str, dict[str, str]] = {
         "last_login_at": "password_last_used",
     },
 }
-_REQUIRED = ("id", "status", "role")
+_REQUIRED = ("id", "status")  # role defaults to "user" (e.g. AWS IAM reports have no role)
 
 
 def load_accounts(text: str, *, mapping: str, columns: dict[str, str]) -> list[AccountRow]:

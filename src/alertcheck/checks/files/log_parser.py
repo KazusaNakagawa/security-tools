@@ -110,8 +110,9 @@ def _json(lines: Iterable[str]) -> Iterator[LogRecord]:
         status = _int(_first(obj, _JSON_STATUS))
         if status is None:
             continue
+        time_value = _first(obj, _JSON_TIME)
         yield LogRecord(
-            ts=_parse_iso(str(_first(obj, _JSON_TIME)) if _first(obj, _JSON_TIME) else None),
+            ts=_parse_iso(str(time_value) if time_value else None),
             client_ip=str(_first(obj, _JSON_IP) or ""),
             method=str(method or ""),
             path=str(path or ""),
@@ -143,7 +144,7 @@ def _alb(lines: Iterable[str]) -> Iterator[LogRecord]:
             method=method,
             path=path,
             status=status if status is not None else 0,
-            bytes=_int(fields[10]),
+            bytes=_int(fields[11]),  # sent_bytes (field 10 is received_bytes)
             user_agent=ua,
         )
 

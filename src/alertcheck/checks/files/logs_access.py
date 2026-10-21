@@ -2,7 +2,7 @@
 
 IPA P1-2 / P1-3 (log review, coverage), A-5 (log fields). Logs are streamed
 record by record; only per-day counters and small top-N structures are kept,
-so a multi-GB log is processed without loading it into memory.
+and distinct-key structures are capped, so a multi-GB log is processed in bounded memory.
 """
 
 from __future__ import annotations

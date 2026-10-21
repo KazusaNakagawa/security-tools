@@ -74,3 +74,25 @@ class TestAccountRow:
             )
             is None
         )
+
+
+class TestBooleanStatus:
+    def test_entra_disabled_account(self):
+        rows = load_accounts(
+            "userPrincipalName,accountEnabled,directoryRoles\n"
+            "a@example.co.jp,false,User\nb@example.co.jp,true,Global Administrator\n",
+            mapping="entra",
+            columns={},
+        )
+        by = {r.account_id: r for r in rows}
+        assert by["a@example.co.jp"].status == "disabled"
+        assert by["b@example.co.jp"].status == "active"
+
+    def test_iam_password_disabled(self):
+        rows = load_accounts(
+            "user,password_enabled,mfa_active,user_creation_time,password_last_used\n"
+            "svc,false,false,2024-01-01,2024-02-01\n",
+            mapping="aws_iam",
+            columns={},
+        )
+        assert rows[0].status == "disabled"

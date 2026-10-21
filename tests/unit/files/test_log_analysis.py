@@ -109,3 +109,27 @@ class TestStats:
         assert stats.signature_hits  # sqli + scanner UA
         assert stats.top_ip()[0][1] == 2  # 203.0.113.9 twice
         assert ".php" in " ".join(stats.webshell_candidates())
+
+
+class TestCoverageStale:
+    def test_stale_log_does_not_satisfy_recent_window(self):
+        old = [dt.datetime(2025, 1, 1, tzinfo=dt.UTC), dt.datetime(2025, 4, 1, tzinfo=dt.UTC)]
+        cov = coverage_days(old, today=TODAY)
+        assert cov.oldest == dt.date(2025, 1, 1) and cov.newest == dt.date(2025, 4, 1)
+        assert not cov.covers_30 and not cov.covers_90
+
+    def test_current_log_reaching_back_90_days(self):
+        ts = [dt.datetime.combine(TODAY - dt.timedelta(days=d), dt.time(), dt.UTC) for d in (0, 95)]
+        cov = coverage_days(ts, today=TODAY)
+        assert cov.covers_30 and cov.covers_90
+
+
+class TestZscoreZeroDays:
+    def test_traffic_collapse_to_zero_is_detected(self):
+        start = dt.date(2026, 9, 1)
+        daily = {start + dt.timedelta(days=i): 1000 for i in range(30)}
+        outage = start + dt.timedelta(days=29)
+        del daily[outage]  # zero-traffic day absent from the counter
+        anomalies = zscore_anomalies(daily, threshold=3.0, span=(start, outage))
+        assert outage in {a.day for a in anomalies}
+        assert next(a for a in anomalies if a.day == outage).value == 0

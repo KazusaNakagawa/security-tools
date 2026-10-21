@@ -139,3 +139,18 @@ def test_no_logs_input_skipped(make_ctx):
 def test_missing_file_error(make_ctx):
     _, result = run(make_ctx, _input("inputs/nope.log"), {})
     assert result.coverage[0].status == "error"
+
+
+def test_empty_client_ip_does_not_trigger_concentration(make_ctx):
+    # ALB-style records with no IP should not produce an ip_concentration finding with ip=""
+    lines = [
+        'h2 2026-10-15T12:00:00Z app/x :0 10.0.0.1:80 0 0 0 200 200 0 10 "GET http://e.co/ HTTP/1.1" "UA" - - -'  # noqa: E501
+        for _ in range(100)
+    ]
+    ctx = make_ctx(inputs={"access_logs": [{"path": "inputs/a.log", "format": "alb"}]})
+    write_log(ctx.infra.workspace.root, "a.log", lines)
+    result = asyncio.run(LogsAccessCheck(today=TODAY).run(ctx))
+    assert not any(
+        f.evidence["kind"] == "ip_concentration" and f.evidence.get("ip") == ""
+        for f in result.findings
+    )

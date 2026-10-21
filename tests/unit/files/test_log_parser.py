@@ -69,3 +69,12 @@ def test_parse_stream_plain(tmp_path):
 def test_unknown_format():
     with pytest.raises(ValueError, match="unknown log format"):
         list(parse_lines(["x"], fmt="bogus"))
+
+
+def test_alb_bytes_is_sent_not_received():
+    line = (
+        "https 2026-10-15T09:00:01.000000Z app/my/abc 203.0.113.5:443 10.0.0.1:80 "  # noqa: E501
+        '0.001 0.002 0.003 200 200 100 4096 "GET https://e.co/p HTTP/1.1" "UA" ECDHE - -'
+    )
+    rec = next(parse_lines([line], fmt="alb"))
+    assert rec.bytes == 4096  # sent_bytes (field 11), not received_bytes (field 10 = 100)
