@@ -1,0 +1,32 @@
+# ports 検査で確認するポート（設計書 7.3）。80/443 は Web として常に確認対象に含める。
+# category ごとの意味は ports.py の CATEGORIES を参照。services は nmap の service 名（標準外ポートでの検出用）。
+- {port: 21, category: legacy_cleartext, label: FTP, services: [ftp]}
+- {port: 23, category: legacy_cleartext, label: Telnet, services: [telnet]}
+- {port: 22, category: remote_admin, label: SSH, severity: medium, services: [ssh]}
+- {port: 3389, category: remote_admin, label: RDP, services: [ms-wbt-server]}
+- {port: 5900, category: remote_admin, label: VNC, services: [vnc]}
+- {port: 445, category: remote_admin, label: SMB, services: [microsoft-ds]}
+- {port: 135, category: remote_admin, label: MS-RPC, services: [msrpc]}
+- {port: 5985, category: remote_admin, label: WinRM, services: [wsman]}
+- {port: 3306, category: database, label: MySQL, services: [mysql]}
+- {port: 5432, category: database, label: PostgreSQL, services: [postgresql]}
+- {port: 1433, category: database, label: SQL Server, services: [ms-sql-s]}
+- {port: 1521, category: database, label: Oracle, services: [oracle-tns]}
+- {port: 6379, category: database, label: Redis, services: [redis]}
+- {port: 9200, category: database, label: Elasticsearch, services: [wap-wsp, elasticsearch]}
+- {port: 27017, category: database, label: MongoDB, services: [mongodb, mongod]}
+- {port: 11211, category: database, label: Memcached, services: [memcache]}
+- {port: 5984, category: database, label: CouchDB, services: [couchdb]}
+- {port: 2375, category: container, label: Docker API, services: [docker]}
+- {port: 2376, category: container, label: Docker API (TLS), services: []}
+- {port: 2379, category: container, label: etcd, services: [etcd-client]}
+- {port: 10250, category: container, label: kubelet, services: []}
+- {port: 6443, category: container, label: Kubernetes API, severity: medium, services: []}
+- {port: 8080, category: admin_web, label: HTTP (8080), services: []}
+- {port: 8443, category: admin_web, label: HTTPS (8443), services: []}
+- {port: 9000, category: admin_web, label: 管理画面（9000）, services: []}
+- {port: 10000, category: admin_web, label: Webmin, services: [snet-sensor-mgmt]}
+- {port: 10443, category: vpn, label: SSL-VPN（10443）, services: []}
+- {port: 4433, category: vpn, label: SSL-VPN（4433）, services: []}
+- {port: 1194, category: vpn, label: OpenVPN, services: [openvpn]}
+- {port: 1723, category: vpn, label: PPTP, services: [pptp]}

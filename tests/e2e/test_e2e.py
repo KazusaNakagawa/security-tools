@@ -114,14 +114,13 @@ def test_plain_http(report):
     assert findings(report, check_id="tls", kind="https_unavailable")
 
 
-@pytest.mark.xfail(reason="API surface checks (Swagger) arrive with #3", strict=False)
 def test_swagger_exposure(report):
-    assert findings(report, check_id="api")
+    assert findings(report, check_id="api", kind="api_spec")
 
 
-@pytest.mark.xfail(reason="port checks (Redis) arrive with #3", strict=False)
 def test_redis_exposure(report):
-    assert findings(report, check_id="ports")
+    redis = findings(report, check_id="ports", port=6379)
+    assert redis and redis[0]["severity"] == "high"
 
 
 def test_verdicts(report):

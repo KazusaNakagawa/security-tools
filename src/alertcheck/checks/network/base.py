@@ -60,7 +60,7 @@ def _is_cert_error(exc: BaseException) -> bool:
 
 
 async def fetch(
-    ctx: Context, url: str, *, max_body: int = DEFAULT_MAX_BODY, **kwargs: Any
+    ctx: Context, url: str, *, max_body: int = DEFAULT_MAX_BODY, method: str = "GET", **kwargs: Any
 ) -> httpx.Response:
     """GET through the scope guard; retry without verification on certificate errors.
 
@@ -72,7 +72,7 @@ async def fetch(
         async with ctx.tls_locks.setdefault(endpoint, asyncio.Lock()):
             if endpoint not in ctx.tls_trust:
                 try:
-                    return await _verified(ctx, url, max_body, kwargs)
+                    return await _verified(ctx, method, url, max_body, kwargs)
                 except httpx.ConnectError as e:
                     if not _is_cert_error(e):
                         raise
@@ -82,16 +82,16 @@ async def fetch(
                     if failed != endpoint:
                         raise
     if ctx.tls_trust.get(endpoint, True):
-        return await _verified(ctx, url, max_body, kwargs)
-    response = await ctx.http_unverified.get(url, max_body=max_body, **kwargs)
+        return await _verified(ctx, method, url, max_body, kwargs)
+    response = await ctx.http_unverified.request(method, url, max_body=max_body, **kwargs)
     response.extensions["alertcheck_unverified"] = True
     return response
 
 
 async def _verified(
-    ctx: Context, url: str, max_body: int, kwargs: dict[str, Any]
+    ctx: Context, method: str, url: str, max_body: int, kwargs: dict[str, Any]
 ) -> httpx.Response:
-    response = await ctx.http.get(url, max_body=max_body, **kwargs)
+    response = await ctx.http.request(method, url, max_body=max_body, **kwargs)
     ctx.tls_trust.setdefault(_endpoint(url), True)
     response.extensions["alertcheck_unverified"] = False
     return response
